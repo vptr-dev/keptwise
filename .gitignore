@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+npm-debug.log*
+.vite/
+
+# PyInstaller
+*.spec.bak
+dist/
+build/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# User data (never commit)
+*.db
+*.db-journal
+*.sqlite
+data/
+exports/
+
+# Editors and OS
+.vscode/settings.json
+.DS_Store
+Thumbs.db
+
+# Developer test data (launcher --data-dir .devdata)
+.devdata/
+
+# Build downloads (packaging/build.ps1)
+packaging/cache/
+
+*.tsbuildinfo

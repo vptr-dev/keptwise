@@ -1,0 +1,149 @@
+// Step 2 on the Transcripts page: the AI writes notes for the saves that have
+// a transcript (title, summary, key details, steps), and with them files and
+// tags each save the way the Collections and Tags pages say. Start a batch
+// here, or let notes start by themselves whenever transcripts finish.
+import { useCallback, useEffect, useState } from "react";
+
+import JobCard from "../../components/JobCard";
+import { icons } from "../../components/icons";
+import { Button, Card, Notice } from "../../components/ui";
+import { errorCode, errorText } from "../../lib/api";
+import { isActive, onJobUpdate, useJobs, type Job } from "../../lib/jobs";
+import { navigate } from "../../lib/router";
+import { useAiSwitch } from "./SortingSettings";
+import { sortingApi, type NotesOverview } from "./sortingApi";
+
+const BATCH_SIZES = [20, 50, 200];
+const SETTINGS_CODES = ["model_missing", "missing_key", "missing_model", "unreachable"];
+
+export default function NotesStep({ transcribing = false }: { transcribing?: boolean }) {
+  const jobs = useJobs();
+  const [notes, setNotes] = useState<NotesOverview | null>(null);
+  const [started, setStarted] = useState<Job | null>(null);
+  const [problem, setProblem] = useState<{ text: string; code: string | null } | null>(null);
+  const [pending, setPending] = useState<{ text: string; go: () => void } | null>(null);
+  const [auto, setAuto] = useAiSwitch("auto_notes", false);
+
+  const refresh = useCallback(() => {
+    sortingApi.overview().then(setNotes).catch(() => undefined);
+  }, []);
+  useEffect(refresh, [refresh]);
+  // Transcripts finishing, and notes being written, both change the count.
+  useEffect(() => {
+    let last = "";
+    return onJobUpdate((job) => {
+      if (job.kind !== "notes" && job.kind !== "enrich") return;
+      const now = `${job.id}:${job.progress}:${job.status}`;
+      if (now !== last) {
+        last = now;
+        refresh();
+      }
+    });
+  }, [refresh]);
+
+  const noteJobs = jobs.filter((job) => job.kind === "notes");
+  const running = noteJobs.find(isActive);
+  const currentId = running?.id ?? Math.max(started?.id ?? 0, noteJobs[0]?.id ?? 0);
+  const current = noteJobs.find((job) => job.id === currentId) ?? started ?? undefined;
+  const busy = running !== undefined;
+
+  async function start(count: number | null, confirm = false) {
+    setProblem(null);
+    setPending(null);
+    try {
+      setStarted(await sortingApi.startNotes(count, confirm));
+    } catch (e) {
+      if (errorCode(e) === "confirm_cost") setPending({ text: errorText(e), go: () => void start(count, true) });
+      else setProblem({ text: errorText(e), code: errorCode(e) });
+    }
+  }
+
+  const waiting = notes?.counts.waiting ?? 0;
+  const cloud = notes?.is_cloud ?? false;
+  const limit = notes?.cloud_batch_limit ?? 50;
+  const sizes = BATCH_SIZES.filter((size) => size < waiting && !(cloud && size > limit));
+  const allAllowed = waiting > 0 && !(cloud && waiting > limit);
+
+  return (
+    <>
+      <Card>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="h-5 w-5 text-indigo-500">{icons.sparkle}</span>
+          <h2 className="font-medium">Write the notes</h2>
+          <span className="ml-auto text-xs text-zinc-500">Using {notes?.ai_label ?? "…"}</span>
+        </div>
+        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400" data-testid="notes-waiting">
+          {waiting > 0
+            ? `${waiting.toLocaleString()} save${waiting === 1 ? " has" : "s have"} a transcript and ${waiting === 1 ? "is" : "are"} waiting for notes.`
+            : "Every save with a transcript has its notes."}{" "}
+          The AI writes a title, a summary, the key details and the steps, and files and tags the save as it goes.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {sizes.map((size) => (
+            <Button key={size} variant={size === sizes[0] ? "primary" : "secondary"} disabled={busy} onClick={() => void start(size)}>
+              Write next {size}
+            </Button>
+          ))}
+          {allAllowed && (
+            <Button variant={sizes.length ? "secondary" : "primary"} disabled={busy} onClick={() => void start(null)}>
+              Write all {waiting.toLocaleString()}
+            </Button>
+          )}
+          {waiting === 0 && (
+            <Button variant="secondary" disabled>
+              Nothing waiting
+            </Button>
+          )}
+        </div>
+        {cloud && waiting > limit && (
+          <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">A cloud AI does at most {limit} at a time, so each batch stays cheap.</p>
+        )}
+        <label className="mt-4 flex items-start gap-3 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+          <input
+            type="checkbox"
+            role="switch"
+            className="mt-0.5 h-4 w-4 accent-indigo-600"
+            checked={(auto ?? false) && !cloud}
+            disabled={auto === null || cloud}
+            onChange={(e) => setAuto(e.target.checked)}
+          />
+          <span>
+            <span className="block text-sm font-medium">Write notes by themselves when transcripts finish</span>
+            <span className="block text-xs text-zinc-500 dark:text-zinc-400">
+              {cloud
+                ? "Only with an AI on this PC: a cloud AI costs money, so it always waits for you to start it."
+                : `Then one press on “Get transcripts” does everything.${transcribing && auto ? " Notes will start when this transcripts job ends." : ""}`}
+            </span>
+          </span>
+        </label>
+      </Card>
+
+      {pending && (
+        <Notice tone="warning" onClose={() => setPending(null)}>
+          <p>{pending.text}</p>
+          <div className="mt-3 flex gap-2">
+            <Button size="sm" onClick={pending.go}>
+              Yes, go ahead
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => setPending(null)}>
+              Cancel
+            </Button>
+          </div>
+        </Notice>
+      )}
+      {problem && (
+        <Notice tone="error" onClose={() => setProblem(null)}>
+          <p>{problem.text}</p>
+          {problem.code && SETTINGS_CODES.includes(problem.code) && (
+            <div className="mt-3">
+              <Button size="sm" variant="secondary" onClick={() => navigate("/settings?section=ai")}>
+                Open AI settings
+              </Button>
+            </div>
+          )}
+        </Notice>
+      )}
+      {current && <JobCard job={current} name="AI notes job" />}
+    </>
+  );
+}

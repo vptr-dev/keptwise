@@ -1,0 +1,6 @@
+# Settings for the backend's tools. Packages are listed in requirements.txt.
+
+[tool.pytest.ini_options]
+# Lets tests write "from app.main import create_app".
+pythonpath = ["."]
+testpaths = ["tests"]

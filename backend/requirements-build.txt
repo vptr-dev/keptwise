@@ -1,0 +1,8 @@
+# Only needed to build the installer (packaging\build.ps1 installs these).
+# Pinned like everything else.
+altgraph==0.17.5
+packaging==26.3
+pefile==2024.8.26
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.10
+setuptools==84.2.1

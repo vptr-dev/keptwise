@@ -1,0 +1,77 @@
+# Packages the app needs to run, pinned to exact versions so every
+# install is the same. Install with:
+#   .\.venv\Scripts\python.exe -m pip install -r backend\requirements-dev.txt
+# (scripts\setup.ps1 does this for you).
+
+# ---- Web server and app window ----
+# Top-level: fastapi (web API), uvicorn (web server), pywebview (window).
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.16.0
+bottle==0.13.4
+click==8.5.1
+fastapi==0.162.2
+h11==0.16.0
+idna==3.20
+# FastAPI needs this, but it never sends anything: there is no exporter
+# installed, and the app also switches FastAPI's telemetry off in main.py.
+opentelemetry-api==1.45.2
+proxy_tools==0.1.0
+pydantic==2.14.3
+pydantic_core==2.50.4
+pywebview==6.2.1
+starlette==1.10.0
+typing-inspection==0.4.5
+typing_extensions==4.16.0
+uvicorn==0.54.0
+
+# Windows only: pywebview talks to the Edge WebView2 window through .NET.
+cffi==2.1.1; sys_platform == "win32"
+clr_loader==0.3.1; sys_platform == "win32"
+pycparser==3.12; sys_platform == "win32"
+pythonnet==3.2.1; sys_platform == "win32"
+
+# ---- API keys: Windows Credential Manager (keyring) ----
+jaraco.classes==3.4.0
+jaraco.context==6.1.2
+jaraco.functools==4.6.0
+keyring==25.7.0
+more-itertools==11.2.1
+pywin32-ctypes==0.2.3; sys_platform == "win32"
+
+# ---- Video info and audio download (yt-dlp) ----
+yt-dlp==2026.10.26
+
+# ---- Speech to text (faster-whisper) ----
+av==19.0.2
+ctranslate2==4.8.5
+faster-whisper==1.2.1
+tokenizers==0.23.3
+
+# ---- Offline search (fastembed, a small ONNX model) ----
+fastembed==0.9.1
+flatbuffers==25.12.19
+loguru==0.7.3
+mmh3==5.3.1
+numpy==2.5.4
+onnxruntime==1.31.1
+pillow==13.0.0
+protobuf==7.36.2
+py_rust_stemmers==0.1.8
+win32_setctime==1.2.1; sys_platform == "win32"
+
+# ---- Model downloads used by the two above (Hugging Face hub) ----
+certifi==2026.10.23
+charset-normalizer==3.5.2
+colorama==0.4.6
+filelock==4.2.10
+fsspec==2026.9.0
+hf-xet==1.8.0
+httpcore==1.0.9
+httpx==0.28.1
+huggingface_hub==1.33.0
+packaging==26.3
+PyYAML==6.0.3
+requests==2.34.2
+tqdm==4.70.1
+urllib3==2.8.0

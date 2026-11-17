@@ -1,0 +1,87 @@
+{
+  "saves_and_collections_v2": [
+    {
+      "timestamp": 1709400000,
+      "title": "Fake User saved a video from Tasty.",
+      "attachments": [
+        {
+          "data": [
+            {
+              "external_context": {
+                "name": "One-pot pasta \u00e2\u0080\u0094 15 minutes",
+                "source": "Tasty",
+                "url": "https://www.facebook.com/watch/?v=1000000000000001"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timestamp": 1709300000,
+      "title": "Fake User saved a reel.",
+      "attachments": [
+        {
+          "data": [
+            {
+              "external_context": {
+                "name": "Home workout, no equipment",
+                "url": "https://www.facebook.com/reel/1000000000000002/?mibextid=abc"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timestamp": 1709200000,
+      "title": "Fake User saved a link.",
+      "attachments": [
+        {
+          "data": [
+            {
+              "external_context": {
+                "name": "10 days in Japan",
+                "source": "travelblog.example",
+                "url": "https://l.facebook.com/l.php?u=https%3A%2F%2Ftravelblog.example%2Fjapan%3Futm_source%3Dfb&h=AT0"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timestamp": 1709100000,
+      "title": "Fake User added a video from Tasty to Recipes.",
+      "attachments": [
+        {
+          "data": [
+            {
+              "external_context": {
+                "name": "One-pot pasta \u00e2\u0080\u0094 15 minutes",
+                "source": "Tasty",
+                "url": "https://www.facebook.com/Tasty/videos/1000000000000001/"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "timestamp": 1709000000,
+      "title": "Fake User saved a post.",
+      "attachments": [
+        {
+          "data": [
+            {
+              "media": {
+                "uri": "your_activity_across_facebook/photos/1.jpg",
+                "title": "Photo"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

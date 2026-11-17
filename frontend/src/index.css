@@ -1,0 +1,672 @@
+/* Tailwind gives us ready-made style classes like "text-3xl" and "dark:bg-zinc-950".
+   Dark mode is on when <html> has the "dark" class. lib/theme.ts sets it from
+   the user's choice in Settings (Light, Dark, or the same as Windows). */
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* The app's own font (Inter, shipped with the app: nothing is fetched). A
+   little heavier than "regular" so text isn't thin, and never rounded. */
+@theme {
+  --font-sans: "Inter Variable", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-weight-normal: 450;
+  --font-weight-medium: 550;
+  --font-weight-semibold: 650;
+}
+
+html {
+  color-scheme: light;
+}
+/* The window itself never scrolls: only the page area and lists inside it do.
+   (A scroll bar on the whole window ran over the window buttons.) */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ---------- scroll bars ---------- */
+
+/* Thin, rounded and see-through, shown only where something really scrolls.
+   The thumb takes the accent colour when the mouse is on it. */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  min-height: 40px;
+  border: 4px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+  background-color: rgb(0 0 0 / 0.16);
+}
+html.dark ::-webkit-scrollbar-thumb {
+  background-color: rgb(255 255 255 / 0.16);
+}
+::-webkit-scrollbar-thumb:hover,
+::-webkit-scrollbar-thumb:active {
+  border-width: 3px;
+  background-color: color-mix(in oklab, var(--color-indigo-500) 70%, transparent);
+}
+::-webkit-scrollbar-button {
+  display: none;
+}
+/* The sidebar's scroll bar stays out of sight until the mouse is over the sidebar. */
+.kw-quiet-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.kw-quiet-scroll::-webkit-scrollbar-thumb {
+  border-width: 2px;
+  background-color: transparent;
+}
+.kw-quiet-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: rgb(0 0 0 / 0.18);
+}
+html.dark .kw-quiet-scroll:hover::-webkit-scrollbar-thumb {
+  background-color: rgb(255 255 255 / 0.18);
+}
+
+/* ---------- switching light and dark ---------- */
+
+/* The new theme spreads out in a circle from the button pressed
+   (lib/theme.ts animates the clip); the old one just stays underneath. */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+::view-transition-old(root) {
+  z-index: 1;
+}
+::view-transition-new(root) {
+  z-index: 2;
+}
+html.dark {
+  color-scheme: dark;
+}
+body {
+  @apply text-zinc-900 antialiased dark:text-zinc-100;
+  font-weight: 450;
+  font-feature-settings: "calt", "cv11", "ss03";
+  letter-spacing: -0.006em;
+}
+/* The page stays hidden until the saved look is on it (lib/theme.ts), so the
+   app never opens in one accent and jumps to another. It shows after 2 s
+   whatever happens. */
+html:not([data-look="ready"]) body {
+  opacity: 0;
+  animation: kw-show 0s 2s forwards;
+}
+@keyframes kw-show {
+  to {
+    opacity: 1;
+  }
+}
+
+/* ---------- the backdrop and frosted glass ---------- */
+
+/* A Mica-style backdrop (the Windows 11 material): one calm, even surface
+   with wide, faint washes of colour, as if a blurred wallpaper sat far
+   behind it, and a fine grain on top. Drawn here, so it looks the same on
+   every PC. */
+body {
+  background-color: #f1f1f4;
+}
+html.dark body {
+  background-color: #1b1b1f;
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 .5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.09'/%3E%3C/svg%3E"),
+    radial-gradient(90rem 60rem at 0% 0%, color-mix(in oklab, var(--color-indigo-400) 16%, transparent), transparent 65%),
+    radial-gradient(80rem 56rem at 100% 8%, color-mix(in oklab, var(--color-sky-300) 12%, transparent), transparent 65%),
+    radial-gradient(90rem 60rem at 60% 110%, color-mix(in oklab, var(--color-rose-300) 9%, transparent), transparent 65%);
+}
+html.dark body::before {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .7 0 0 0 0 .7 0 0 0 0 .7 0 0 0 .5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.07'/%3E%3C/svg%3E"),
+    radial-gradient(90rem 60rem at 0% 0%, color-mix(in oklab, var(--color-indigo-500) 13%, transparent), transparent 65%),
+    radial-gradient(80rem 56rem at 100% 8%, color-mix(in oklab, var(--color-sky-500) 8%, transparent), transparent 65%),
+    radial-gradient(90rem 60rem at 60% 110%, color-mix(in oklab, var(--color-rose-500) 6%, transparent), transparent 65%);
+}
+
+/* A fine glassy edge round the whole window, the same all the way round
+   (a touch brighter along the top, where the light comes from) so no corner
+   lights up more than another. Clicks pass straight through it. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+  padding: 1px;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.7), rgb(0 0 0 / 0.08) 6rem);
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+html.dark body::after {
+  background: linear-gradient(180deg, rgb(255 255 255 / 0.16), rgb(255 255 255 / 0.07) 6rem);
+}
+
+/* Frosted glass for the frame and the main panels: see-through, blurring
+   what is behind. (Not in a layer, so it wins over the bg-… classes.) */
+.kw-glass {
+  background-color: color-mix(in oklab, white 62%, transparent);
+  border-color: rgb(0 0 0 / 0.07);
+  -webkit-backdrop-filter: blur(22px) saturate(1.6);
+  backdrop-filter: blur(22px) saturate(1.6);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.6),
+    0 1px 2px rgb(0 0 0 / 0.04);
+}
+html.dark .kw-glass {
+  background-color: color-mix(in oklab, var(--color-zinc-900) 56%, transparent);
+  border-color: rgb(255 255 255 / 0.08);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.05),
+    0 1px 2px rgb(0 0 0 / 0.3);
+}
+/* The same for things that float over the page (menus, dialogs, the command
+   centre): a little more solid so text stays easy to read, with a deep shadow. */
+.kw-glass-pop {
+  background-color: color-mix(in oklab, white 80%, transparent);
+  border-color: rgb(0 0 0 / 0.08);
+  -webkit-backdrop-filter: blur(28px) saturate(1.7);
+  backdrop-filter: blur(28px) saturate(1.7);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.7),
+    0 24px 60px -12px rgb(0 0 0 / 0.28),
+    0 4px 14px rgb(0 0 0 / 0.08);
+}
+html.dark .kw-glass-pop {
+  background-color: color-mix(in oklab, var(--color-zinc-900) 78%, transparent);
+  border-color: rgb(255 255 255 / 0.1);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.06),
+    0 24px 60px -12px rgb(0 0 0 / 0.7),
+    0 4px 14px rgb(0 0 0 / 0.4);
+}
+/* The many smaller panels on a page (cards, rows, lists) are see-through too,
+   but without the blur: blurring hundreds of cards would make scrolling slow. */
+main :where(.rounded-2xl, .rounded-xl).border.bg-white:not(.sticky, .fixed, .absolute, .kw-glass, .kw-glass-pop) {
+  background-color: color-mix(in oklab, white 68%, transparent);
+}
+html.dark main :where(.rounded-2xl, .rounded-xl).border.dark\:bg-zinc-900:not(.sticky, .fixed, .absolute, .kw-glass, .kw-glass-pop) {
+  background-color: color-mix(in oklab, var(--color-zinc-900) 62%, transparent);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .kw-glass,
+  .kw-glass-pop {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background-color: white;
+  }
+  html.dark .kw-glass,
+  html.dark .kw-glass-pop {
+    background-color: var(--color-zinc-900);
+  }
+}
+
+/* Accent colour (Settings -> Appearance). The app is styled with "indigo"
+   classes; choosing another accent points every indigo shade at that colour.
+   lib/theme.ts sets data-accent on <html>. Indigo itself needs no rule. */
+/* "Default" has no colour of its own: a dark accent in light mode... */
+html[data-accent="default"] {
+  --color-indigo-50: var(--color-zinc-100);
+  --color-indigo-100: var(--color-zinc-200);
+  --color-indigo-200: var(--color-zinc-300);
+  --color-indigo-300: var(--color-zinc-400);
+  --color-indigo-400: var(--color-zinc-500);
+  --color-indigo-500: var(--color-zinc-700);
+  --color-indigo-600: var(--color-zinc-900);
+  --color-indigo-700: var(--color-zinc-950);
+  --color-indigo-800: var(--color-zinc-900);
+  --color-indigo-900: var(--color-zinc-800);
+  --color-indigo-950: var(--color-zinc-900);
+}
+/* ...and a light accent in dark mode. Dark mode uses the low numbers for
+   text and the high ones for tinted panels and borders. */
+html.dark[data-accent="default"] {
+  --color-indigo-50: var(--color-zinc-800);
+  --color-indigo-100: var(--color-zinc-700);
+  --color-indigo-200: var(--color-zinc-100);
+  --color-indigo-300: var(--color-zinc-100);
+  --color-indigo-400: var(--color-zinc-300);
+  --color-indigo-500: #fff;
+  --color-indigo-600: var(--color-zinc-100);
+  --color-indigo-700: var(--color-zinc-500);
+  --color-indigo-800: var(--color-zinc-600);
+  --color-indigo-900: var(--color-zinc-700);
+  --color-indigo-950: var(--color-zinc-700);
+}
+/* White text on an accent button would vanish on the light accent. */
+html.dark[data-accent="default"] :is(.bg-indigo-600, .bg-indigo-500, .bg-indigo-400).text-white,
+html.dark[data-accent="default"] :is(.bg-indigo-600, .bg-indigo-500) .text-white,
+html.dark[data-accent="default"] .hover\:bg-indigo-600.hover\:text-white:hover {
+  color: var(--color-zinc-900);
+}
+html.dark[data-accent="default"] :is(.bg-indigo-600, .bg-indigo-500) > .bg-white {
+  background-color: var(--color-zinc-900);
+}
+html[data-accent="violet"] {
+  --color-indigo-50: var(--color-violet-50);
+  --color-indigo-100: var(--color-violet-100);
+  --color-indigo-200: var(--color-violet-200);
+  --color-indigo-300: var(--color-violet-300);
+  --color-indigo-400: var(--color-violet-400);
+  --color-indigo-500: var(--color-violet-500);
+  --color-indigo-600: var(--color-violet-600);
+  --color-indigo-700: var(--color-violet-700);
+  --color-indigo-800: var(--color-violet-800);
+  --color-indigo-900: var(--color-violet-900);
+  --color-indigo-950: var(--color-violet-950);
+}
+html[data-accent="blue"] {
+  --color-indigo-50: var(--color-blue-50);
+  --color-indigo-100: var(--color-blue-100);
+  --color-indigo-200: var(--color-blue-200);
+  --color-indigo-300: var(--color-blue-300);
+  --color-indigo-400: var(--color-blue-400);
+  --color-indigo-500: var(--color-blue-500);
+  --color-indigo-600: var(--color-blue-600);
+  --color-indigo-700: var(--color-blue-700);
+  --color-indigo-800: var(--color-blue-800);
+  --color-indigo-900: var(--color-blue-900);
+  --color-indigo-950: var(--color-blue-950);
+}
+html[data-accent="teal"] {
+  --color-indigo-50: var(--color-teal-50);
+  --color-indigo-100: var(--color-teal-100);
+  --color-indigo-200: var(--color-teal-200);
+  --color-indigo-300: var(--color-teal-300);
+  --color-indigo-400: var(--color-teal-400);
+  --color-indigo-500: var(--color-teal-500);
+  --color-indigo-600: var(--color-teal-600);
+  --color-indigo-700: var(--color-teal-700);
+  --color-indigo-800: var(--color-teal-800);
+  --color-indigo-900: var(--color-teal-900);
+  --color-indigo-950: var(--color-teal-950);
+}
+html[data-accent="emerald"] {
+  --color-indigo-50: var(--color-emerald-50);
+  --color-indigo-100: var(--color-emerald-100);
+  --color-indigo-200: var(--color-emerald-200);
+  --color-indigo-300: var(--color-emerald-300);
+  --color-indigo-400: var(--color-emerald-400);
+  --color-indigo-500: var(--color-emerald-500);
+  --color-indigo-600: var(--color-emerald-600);
+  --color-indigo-700: var(--color-emerald-700);
+  --color-indigo-800: var(--color-emerald-800);
+  --color-indigo-900: var(--color-emerald-900);
+  --color-indigo-950: var(--color-emerald-950);
+}
+html[data-accent="rose"] {
+  --color-indigo-50: var(--color-rose-50);
+  --color-indigo-100: var(--color-rose-100);
+  --color-indigo-200: var(--color-rose-200);
+  --color-indigo-300: var(--color-rose-300);
+  --color-indigo-400: var(--color-rose-400);
+  --color-indigo-500: var(--color-rose-500);
+  --color-indigo-600: var(--color-rose-600);
+  --color-indigo-700: var(--color-rose-700);
+  --color-indigo-800: var(--color-rose-800);
+  --color-indigo-900: var(--color-rose-900);
+  --color-indigo-950: var(--color-rose-950);
+}
+html[data-accent="amber"] {
+  --color-indigo-50: var(--color-amber-50);
+  --color-indigo-100: var(--color-amber-100);
+  --color-indigo-200: var(--color-amber-200);
+  --color-indigo-300: var(--color-amber-300);
+  --color-indigo-400: var(--color-amber-400);
+  --color-indigo-500: var(--color-amber-500);
+  --color-indigo-600: var(--color-amber-600);
+  --color-indigo-700: var(--color-amber-700);
+  --color-indigo-800: var(--color-amber-800);
+  --color-indigo-900: var(--color-amber-900);
+  --color-indigo-950: var(--color-amber-950);
+}
+
+/* Text size (Settings -> Appearance): everything is sized from this. */
+html[data-text-size="small"] {
+  font-size: 14px;
+}
+html[data-text-size="large"] {
+  font-size: 18px;
+}
+
+/* The window has no Windows title bar, so the app's own top bar must not
+   select text when dragged. */
+.pywebview-drag-region {
+  user-select: none;
+}
+
+/* ---------- small motions ---------- */
+
+/* Tiles (folders, saves) arrive one after another: set --i to the tile's place. */
+@keyframes kw-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.kw-pop {
+  animation: kw-pop 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  animation-delay: calc(min(var(--i, 0), 14) * 24ms);
+}
+
+/* Opening a folder slides its contents in from the right; going back, from the left. */
+@keyframes kw-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes kw-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(-18px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.kw-in-right {
+  animation: kw-in-right 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.kw-in-left {
+  animation: kw-in-left 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* ---------- collection tiles ---------- */
+
+/* A glass tile with a fine edge that catches the light at the top left and
+   picks up the accent at the bottom right. Picked or dropped-on tiles get a
+   full accent edge and a tint. */
+.kw-tile {
+  position: relative;
+  border-radius: 1.25rem;
+  background-color: color-mix(in oklab, white 66%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.7),
+    0 1px 2px rgb(0 0 0 / 0.04),
+    0 14px 30px -20px rgb(0 0 0 / 0.3);
+}
+html.dark .kw-tile {
+  background-color: color-mix(in oklab, var(--color-zinc-900) 58%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.06),
+    0 1px 2px rgb(0 0 0 / 0.3),
+    0 14px 30px -20px rgb(0 0 0 / 0.8);
+}
+.kw-tile::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(
+    140deg,
+    rgb(255 255 255 / 0.95),
+    rgb(0 0 0 / 0.1) 38%,
+    rgb(0 0 0 / 0.06) 62%,
+    color-mix(in oklab, var(--color-indigo-500) 45%, transparent)
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  transition: opacity 0.18s;
+}
+html.dark .kw-tile::before {
+  background: linear-gradient(
+    140deg,
+    rgb(255 255 255 / 0.28),
+    rgb(255 255 255 / 0.07) 38%,
+    rgb(255 255 255 / 0.05) 62%,
+    color-mix(in oklab, var(--color-indigo-400) 55%, transparent)
+  );
+}
+.kw-tile:hover {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.7),
+    0 2px 4px rgb(0 0 0 / 0.05),
+    0 22px 40px -20px color-mix(in oklab, var(--color-indigo-500) 40%, rgb(0 0 0 / 0.35));
+}
+html.dark .kw-tile:hover {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.08),
+    0 22px 40px -20px rgb(0 0 0 / 0.9);
+}
+.kw-tile[data-picked="true"],
+.kw-tile[data-open="true"] {
+  background-color: color-mix(in oklab, var(--color-indigo-500) 12%, color-mix(in oklab, white 70%, transparent));
+}
+html.dark .kw-tile[data-picked="true"],
+html.dark .kw-tile[data-open="true"] {
+  background-color: color-mix(in oklab, var(--color-indigo-400) 16%, color-mix(in oklab, var(--color-zinc-900) 60%, transparent));
+}
+.kw-tile[data-picked="true"]::before,
+.kw-tile[data-open="true"]::before {
+  padding: 2px;
+  background: var(--color-indigo-500);
+}
+
+/* The sheet of paper in a folder slides up a little when the folder opens. */
+.kw-folder-paper {
+  transform-box: fill-box;
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.kw-folder:hover .kw-folder-paper,
+.kw-folder[data-open="true"] .kw-folder-paper {
+  transform: translateY(-4px);
+}
+
+/* A folder's front flap tips open when you point at it (or drag over it). */
+.kw-folder-front {
+  transform-origin: 50% 100%;
+  transform-box: fill-box;
+  transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.kw-folder:hover .kw-folder-front,
+.kw-folder[data-open="true"] .kw-folder-front {
+  transform: skewX(-14deg) scaleY(0.86);
+}
+.kw-folder {
+  transition:
+    transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 0.18s,
+    border-color 0.18s,
+    background-color 0.18s;
+}
+.kw-folder:hover {
+  transform: translateY(-3px);
+}
+.kw-folder:active {
+  transform: scale(0.98);
+}
+
+/* A page arrives with a short fade and a small lift. */
+@keyframes kw-page {
+  from {
+    opacity: 0;
+    transform: scale(0.994);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.kw-page {
+  transform-origin: 50% 0;
+  animation: kw-page 0.24s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* Things that float (dialogs, menus, the command centre) grow in a little. */
+@keyframes kw-rise {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.975);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.kw-rise {
+  animation: kw-rise 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.1) both;
+}
+@keyframes kw-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.kw-fade {
+  animation: kw-fade 0.16s ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kw-pop,
+  .kw-in-right,
+  .kw-in-left,
+  .kw-page,
+  .kw-rise,
+  .kw-fade {
+    animation: none;
+  }
+  .kw-folder,
+  .kw-folder-front,
+  .kw-folder-paper {
+    transition: none;
+  }
+}
+
+/* ---------- borders, depth and buttons ---------- */
+
+/* Borders are see-through lines, not solid greys, so they sit well on any
+   surface. (These win over the border-zinc classes used across the app.) */
+.border-zinc-100,
+.border-zinc-200 {
+  border-color: rgb(0 0 0 / 0.08);
+}
+.border-zinc-300 {
+  border-color: rgb(0 0 0 / 0.14);
+}
+html.dark :is(.dark\:border-zinc-800, .dark\:border-zinc-700) {
+  border-color: rgb(255 255 255 / 0.09);
+}
+html.dark .dark\:border-zinc-600 {
+  border-color: rgb(255 255 255 / 0.16);
+}
+:is(.divide-zinc-100, .divide-zinc-200) > :not(:last-child) {
+  border-color: rgb(0 0 0 / 0.07);
+}
+html.dark .dark\:divide-zinc-800 > :not(:last-child) {
+  border-color: rgb(255 255 255 / 0.08);
+}
+
+/* Dark mode: shadows hardly show on black, so depth comes from lighter
+   surfaces. The page is darkest; panels are a step lighter; things that
+   float are lighter again; a pointed-at tile lightens a little more. */
+html.dark .kw-glass {
+  background-color: color-mix(in oklab, var(--color-zinc-800) 46%, transparent);
+  border-color: rgb(255 255 255 / 0.09);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07);
+}
+html.dark .kw-glass-pop {
+  background-color: color-mix(in oklab, var(--color-zinc-800) 90%, transparent);
+  border-color: rgb(255 255 255 / 0.13);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.1),
+    0 24px 60px -12px rgb(0 0 0 / 0.7);
+}
+html.dark main :where(.rounded-2xl, .rounded-xl).border.dark\:bg-zinc-900:not(.sticky, .fixed, .absolute, .kw-glass, .kw-glass-pop) {
+  background-color: rgb(255 255 255 / 0.045);
+}
+html.dark .kw-tile {
+  background-color: rgb(255 255 255 / 0.05);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.07);
+}
+html.dark .kw-tile:hover {
+  background-color: rgb(255 255 255 / 0.085);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.1);
+}
+html.dark :is(.dark\:bg-zinc-950, .dark\:bg-zinc-900):is(input, select, textarea) {
+  background-color: rgb(255 255 255 / 0.05);
+}
+html.dark :is(select) option {
+  background-color: var(--color-zinc-800);
+}
+
+/* Buttons rise a hair under the mouse and press in when clicked, with a
+   small spring. */
+.kw-btn {
+  transition:
+    transform 0.18s cubic-bezier(0.3, 1.5, 0.5, 1),
+    background-color 0.15s,
+    border-color 0.15s,
+    color 0.15s,
+    box-shadow 0.18s,
+    opacity 0.15s;
+}
+.kw-btn:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+.kw-btn:not(:disabled):active {
+  transform: translateY(0) scale(0.96);
+  transition-duration: 0.06s;
+}
+.kw-btn-primary {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.22),
+    0 1px 2px rgb(0 0 0 / 0.12);
+}
+.kw-btn-primary:not(:disabled):hover {
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    0 6px 16px -6px color-mix(in oklab, var(--color-indigo-600) 60%, transparent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .kw-btn {
+    transition: none;
+  }
+  .kw-btn:not(:disabled):hover,
+  .kw-btn:not(:disabled):active {
+    transform: none;
+  }
+}
+
+
+/* Keyboard keys (Ctrl K, Esc...) in the app's own font, small and calm. */
+kbd {
+  font-family: inherit;
+  font-weight: 550;
+  letter-spacing: 0.01em;
+  font-feature-settings: "tnum", "cv11";
+}

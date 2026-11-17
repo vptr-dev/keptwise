@@ -1,0 +1,5 @@
+# Optional: lets speech to text use an NVIDIA graphics card (about 435 MB).
+# ctranslate2 already brings cuDNN; this adds cuBLAS. 12.6 works with
+# NVIDIA drivers from version 560 on. Without it, the processor is used.
+# Install:  .venv\Scripts\python.exe -m pip install -r backend\requirements-gpu.txt
+nvidia-cublas-cu12==12.6.4.1

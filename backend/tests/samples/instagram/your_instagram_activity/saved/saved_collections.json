@@ -1,0 +1,62 @@
+{
+  "saved_saved_collections": [
+    {
+      "title": "Collection",
+      "string_map_data": {
+        "Name": {
+          "value": "Recipes \u00f0\u009f\u008d\u009d"
+        },
+        "Creation Time": {
+          "timestamp": 1700000000
+        },
+        "Update Time": {
+          "timestamp": 1709300000
+        }
+      }
+    },
+    {
+      "string_map_data": {
+        "Name": {
+          "href": "https://www.instagram.com/p/CfakePost01/",
+          "value": "chef_marco"
+        },
+        "Added Time": {
+          "timestamp": 1709300000
+        }
+      }
+    },
+    {
+      "string_map_data": {
+        "Name": {
+          "href": "https://www.instagram.com/reel/CfakeReel02/",
+          "value": "caf\u00c3\u00a9_lisboa"
+        },
+        "Added Time": {
+          "timestamp": 1709200000
+        }
+      }
+    },
+    {
+      "title": "Collection",
+      "string_map_data": {
+        "Name": {
+          "value": "Japan trip"
+        },
+        "Creation Time": {
+          "timestamp": 1700000000
+        }
+      }
+    },
+    {
+      "string_map_data": {
+        "Name": {
+          "href": "https://www.instagram.com/p/CfakePost04/",
+          "value": "tokyo.eats"
+        },
+        "Added Time": {
+          "timestamp": 1708000000
+        }
+      }
+    }
+  ]
+}
