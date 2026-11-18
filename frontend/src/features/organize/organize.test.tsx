@@ -130,41 +130,15 @@ test("right-click a tag to merge it into another; the tag limit shows", async ()
   await waitFor(() => expect(calls.find((c) => c.url === "/api/tags/merge")?.body).toEqual({ tag_ids: [1, 2], into: "gym" }));
 });
 
-test("the Tags page: let the AI tag (switch, buttons and its options) or tag by hand", async () => {
-  vi.stubGlobal("EventSource", FakeEventSource);
-  const settings = {
-    auto_sort: true, auto_tag: true, mode: "my_list", platform_collections: "hint", max_collections: 2, rules: [], review_below: 0.6,
-    kind_steps: {}, safe_to_unsave: "processed", ai_folder: "", tags_per_video: 6, tag_mode: "free", my_tags: [], no_collection_tag: "unsorted",
-  };
-  const calls = fakeBackend({
+test("the Tags page is for tagging by hand: the AI's tag ideas wait on the Sort page", async () => {
+  fakeBackend({
     "GET /api/tags": { tags: [{ id: 1, name: "pasta", color: null, count: 3 }], per_save: 10, limit: 100, total: 1 },
-    "GET /api/notes/overview": { counts: { untagged: 44, processed: 60 } },
-    "GET /api/sorting/settings": { settings, kinds: [] },
-    "PUT /api/sorting/settings": (body: unknown) => ({ settings: body, kinds: [] }),
-    "POST /api/tags/ai": { id: 5, kind: "tags", title: "AI tags for 44 videos", status: "queued", progress: 0, total: 44, message: "", error: null, result: null },
+    "GET /api/notes/overview": { counts: { untagged: 44, processed: 60, tag_suggested: 12 } },
     "GET /api/jobs": [],
   });
   render(<TagsPage />);
-  // One clear number, in one place.
-  expect(await screen.findByText("44 saves without tags")).toBeInTheDocument();
-  expect(screen.queryByText(/have no tags yet/)).not.toBeInTheDocument();
-
-  fireEvent.click(screen.getByRole("button", { name: /Let the AI tag/ }));
-  fireEvent.click(await screen.findByRole("button", { name: "Tag the 44 without tags" }));
-  await waitFor(() => expect(calls.find((c) => c.url === "/api/tags/ai")?.body).toMatchObject({ which: "untagged" }));
-
-  const auto = screen.getByRole("switch", { name: /Tag new saves by themselves/ });
-  await waitFor(() => expect(auto).toBeChecked());
-  fireEvent.click(auto);
-  await waitFor(() => expect((calls.find((c) => c.method === "PUT")?.body as { auto_tag: boolean }).auto_tag).toBe(false));
-
-  // Its options are here, not in Settings.
-  (screen.getByText(/How the AI tags/).closest("details") as HTMLDetailsElement).open = true;
-  fireEvent.click(await screen.findByRole("radio", { name: "Up to 10" }));
-  await waitFor(() => expect(calls.filter((c) => c.method === "PUT").some((c) => (c.body as { tags_per_video: number }).tags_per_video === 10)).toBe(true));
-  fireEvent.click(screen.getByLabelText("On, with the tag"));
-  await waitFor(() => expect(calls.filter((c) => c.method === "PUT").some((c) => (c.body as { no_collection_tag: string }).no_collection_tag === "")).toBe(true));
-
-  fireEvent.click(screen.getByRole("button", { name: /Tag by hand/ }));
-  expect((await screen.findAllByText(/Pick several saves/)).length).toBe(1);
+  expect(await screen.findByText(/The AI suggests tags for 12 saves/)).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Add them on the Sort page" })).toHaveAttribute("href", "#/transcripts");
+  expect(screen.queryByRole("button", { name: /Let the AI tag/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /AI tags/ })).not.toBeInTheDocument();
 });

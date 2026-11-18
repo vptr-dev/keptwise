@@ -1,0 +1,227 @@
+// Unsorted: saves with notes that aren't in any collection yet. Each one
+// shows where the AI thinks it goes; one click accepts that, or pick another
+// collection yourself. The AI's suggested tags wait here too. Shown on the
+// Sort page and in Collections -> Unsorted.
+import { useCallback, useEffect, useState } from "react";
+
+import { Button, Notice } from "../../components/ui";
+import { toast } from "../../components/Toasts";
+import { icons } from "../../components/icons";
+import { errorText } from "../../lib/api";
+import { isActive, onJobUpdate } from "../../lib/jobs";
+import { displayTitle } from "../library/libraryApi";
+import Thumb from "../library/Thumb";
+import CollectionPicker from "../organize/CollectionPicker";
+import FolderIcon from "../organize/FolderIcon";
+import { announceChange, onOrganizeChange } from "../organize/organizeApi";
+import { fitWord } from "./ItemCard";
+import { sortingApi, type Collection, type ItemCard, type Space } from "./sortingApi";
+
+export default function Unsorted({ limit, onCount }: { limit?: number; onCount?: (count: number) => void }) {
+  const [items, setItems] = useState<ItemCard[] | null>(null);
+  const [collections, setCollections] = useState<Collection[]>([]);
+  const [spaces, setSpaces] = useState<Space[]>([]);
+  const [all, setAll] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    sortingApi
+      .library({ type: "unsorted" })
+      .then((list) => {
+        setItems(list);
+        onCount?.(list.length);
+      })
+      .catch((e) => setError(errorText(e)));
+    sortingApi
+      .collections()
+      .then((o) => {
+        setCollections(o.collections);
+        setSpaces(o.spaces ?? []);
+      })
+      .catch(() => undefined);
+  }, [onCount]);
+  useEffect(load, [load]);
+  useEffect(() => onOrganizeChange(load), [load]);
+  // New notes add saves here: refresh when a notes or sort job ends.
+  useEffect(() => onJobUpdate((job) => (job.kind === "notes" || job.kind === "sort") && !isActive(job) && load()), [load]);
+
+  async function act(task: () => Promise<unknown>) {
+    setError(null);
+    try {
+      await task();
+    } catch (e) {
+      setError(errorText(e));
+    }
+    announceChange();
+  }
+
+  // The ones the AI has a suggestion for first: one click each.
+  const list = [...(items ?? [])].sort(
+    (a, b) => Number(!!suggestionOf(b, collections)) - Number(!!suggestionOf(a, collections)),
+  );
+  const withIdea = list.filter((item) => suggestionOf(item, collections)).length;
+  const shown = limit && !all ? list.slice(0, limit) : list;
+
+  async function acceptAll() {
+    setBusy(true);
+    try {
+      const done = await sortingApi.acceptAll();
+      toast(`Put ${done.accepted.toLocaleString()} save${done.accepted === 1 ? "" : "s"} where the AI suggested. Undo (top right) takes it back.`);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(false);
+      announceChange();
+    }
+  }
+
+  return (
+    <section className="space-y-3" aria-label="Unsorted">
+      <div className="flex flex-wrap items-center gap-3">
+        <p className="text-sm text-zinc-600 dark:text-zinc-400">
+          {items === null
+            ? "…"
+            : list.length === 0
+              ? "Every save with notes is in a collection."
+              : `${list.length.toLocaleString()} save${list.length === 1 ? " isn't" : "s aren't"} in a collection yet.`}
+        </p>
+        {withIdea > 1 && (
+          <Button size="sm" className="ml-auto" disabled={busy} onClick={() => void acceptAll()}>
+            <span className="h-4 w-4">{icons.check}</span>
+            Accept all {withIdea.toLocaleString()} suggestions
+          </Button>
+        )}
+      </div>
+      {error && (
+        <Notice tone="error" onClose={() => setError(null)}>
+          {error}
+        </Notice>
+      )}
+      {shown.length > 0 && (
+        <ul className="divide-y divide-zinc-100 overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
+          {shown.map((item) => (
+            <Row
+              key={item.id}
+              item={item}
+              collections={collections}
+              spaces={spaces}
+              onAccept={(collectionId) => act(() => sortingApi.accept(item.id, collectionId))}
+              onTags={(names, accept) =>
+                act(async () => {
+                  const card = await sortingApi.answerTags(item.id, names, accept);
+                  setItems((old) => old?.map((o) => (o.id === card.id ? card : o)) ?? old);
+                })
+              }
+            />
+          ))}
+        </ul>
+      )}
+      {limit !== undefined && list.length > limit && (
+        <Button variant="secondary" size="sm" onClick={() => setAll(!all)}>
+          {all ? "Show fewer" : `Show all ${list.length.toLocaleString()}`}
+        </Button>
+      )}
+    </section>
+  );
+}
+
+/** The AI's best pick that's still one of the user's collections. */
+export function suggestionOf(item: ItemCard, collections: Collection[]) {
+  for (const pick of item.suggestions) {
+    const collection = collections.find((c) => c.name.toLowerCase() === pick.name.toLowerCase());
+    if (collection) return { collection, fit: fitWord(pick.confidence) };
+  }
+  return null;
+}
+
+function Row({
+  item,
+  collections,
+  spaces,
+  onAccept,
+  onTags,
+}: {
+  item: ItemCard;
+  collections: Collection[];
+  spaces: Space[];
+  onAccept: (collectionId?: number) => void;
+  onTags: (names: string[], accept: boolean) => void;
+}) {
+  const idea = suggestionOf(item, collections);
+  return (
+    <li className="flex gap-3 px-4 py-3" data-testid={`unsorted-${item.id}`}>
+      <Thumb item={item} showDuration={false} className="h-16 w-12 shrink-0 rounded-lg" />
+      <div className="min-w-0 flex-1 space-y-1.5">
+        <a href={`#/item/${item.id}`} className="block truncate text-sm font-medium hover:underline">
+          {displayTitle(item)}
+        </a>
+        {item.summary && <p className="line-clamp-1 text-xs text-zinc-500 dark:text-zinc-400">{item.summary}</p>}
+        <div className="flex flex-wrap items-center gap-2">
+          {idea ? (
+            <>
+              <span className="inline-flex items-center gap-1.5 text-xs text-zinc-600 dark:text-zinc-300">
+                <span className="text-zinc-400">AI suggests</span>
+                <FolderIcon color={idea.collection.color} icon={idea.collection.icon} collectionId={idea.collection.id} className="h-4 w-5" />
+                <b className="font-medium">{idea.collection.name}</b>
+                <span className="text-zinc-400">({idea.fit})</span>
+              </span>
+              <Button size="sm" onClick={() => onAccept()}>
+                Accept
+              </Button>
+            </>
+          ) : (
+            <span className="text-xs text-zinc-400">No suggestion yet.</span>
+          )}
+          <CollectionPicker
+            collections={collections}
+            spaces={spaces}
+            label={`Choose a collection for “${displayTitle(item)}”`}
+            suggested={item.suggestions.map((s) => s.name)}
+            onPick={(collection) => onAccept(collection.id)}
+          >
+            {idea ? "Choose another" : "Choose a collection"}
+          </CollectionPicker>
+        </div>
+        <TagIdeas item={item} onAnswer={onTags} />
+      </div>
+    </li>
+  );
+}
+
+/** The AI's suggested tags for one save: click one to add it, × to say no. */
+export function TagIdeas({ item, onAnswer }: { item: ItemCard; onAnswer: (names: string[], accept: boolean) => void }) {
+  const ideas = item.tag_suggestions ?? [];
+  if (ideas.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-xs" aria-label="Suggested tags">
+      <span className="text-zinc-400">Suggested tags</span>
+      {ideas.map((name) => (
+        <span key={name} className="inline-flex items-center rounded-full border border-dashed border-zinc-300 dark:border-zinc-700">
+          <button
+            type="button"
+            aria-label={`Add #${name}`}
+            title={`Add #${name}`}
+            onClick={() => onAnswer([name], true)}
+            className="rounded-l-full py-0.5 pl-2 pr-1 text-zinc-600 hover:text-indigo-700 dark:text-zinc-300 dark:hover:text-indigo-300"
+          >
+            + #{name}
+          </button>
+          <button
+            type="button"
+            aria-label={`No to #${name}`}
+            onClick={() => onAnswer([name], false)}
+            className="rounded-r-full px-1.5 py-0.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-100"
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      {ideas.length > 1 && (
+        <button type="button" onClick={() => onAnswer(ideas, true)} className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">
+          Add all
+        </button>
+      )}
+    </div>
+  );
+}

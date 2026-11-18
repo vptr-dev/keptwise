@@ -1,6 +1,9 @@
 // Settings -> Appearance: theme, accent colour, text size, start screen,
 // your name, the sidebar (pages and their order), cards and closed tips.
 // Every change is saved straight away.
+import ColourPicker, { Swatch } from "../../components/ColourPicker";
+import Popover from "../../components/Popover";
+import { icons } from "../../components/icons";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { Card, Field, Segmented, inputClass } from "../../components/ui";
@@ -22,7 +25,7 @@ function Group({ label, hint, children }: { label: string; hint?: string; childr
     <div className="space-y-1.5">
       <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{label}</p>
       {children}
-      {hint && <p className="text-xs text-zinc-500 dark:text-zinc-400">{hint}</p>}
+      {hint && <p className="kw-tip text-xs text-zinc-500 dark:text-zinc-400">{hint}</p>}
     </div>
   );
 }
@@ -40,7 +43,7 @@ export default function AppearanceSettings({ look, onChange }: { look: Look; onC
   return (
     <Card>
       <h2 className="mb-1 text-lg font-medium">Appearance</h2>
-      <p className="mb-5 text-sm text-zinc-500 dark:text-zinc-400">
+      <p className="kw-tip mb-5 text-sm text-zinc-500 dark:text-zinc-400">
         Make Keptwise yours. Ctrl+Shift+L switches light and dark from anywhere.
       </p>
       <div className="space-y-5">
@@ -100,7 +103,7 @@ export default function AppearanceSettings({ look, onChange }: { look: Look; onC
           />
           <span>
             <span className="font-medium">Slim sidebar</span>
-            <span className="block text-zinc-500 dark:text-zinc-400">Show only the icons, for more room.</span>
+            <span className="kw-tip block text-zinc-500 dark:text-zinc-400">Show only the icons, for more room.</span>
           </span>
         </label>
 
@@ -126,7 +129,7 @@ export default function AppearanceSettings({ look, onChange }: { look: Look; onC
           />
           <span>
             <span className="font-medium">Quick buttons on saves</span>
-            <span className="block text-zinc-500 dark:text-zinc-400">
+            <span className="kw-tip block text-zinc-500 dark:text-zinc-400">
               Point at a save in the Library to tag it, file it, add it to a plan or unsave it.
             </span>
           </span>
@@ -135,6 +138,20 @@ export default function AppearanceSettings({ look, onChange }: { look: Look; onC
         <SidebarChoices look={look} onChange={onChange} />
 
         <Group label="Tips" hint="Tips and suggestions you closed stay closed.">
+          <label className="flex cursor-pointer items-center gap-3 text-sm">
+            <input
+              type="checkbox"
+              checked={!!look.hide_tips}
+              onChange={(event) => onChange({ hide_tips: event.target.checked })}
+              className="h-4 w-4 accent-indigo-600"
+            />
+            <span>
+              Hide tips and descriptions
+              <span className="kw-tip block text-xs text-zinc-500 dark:text-zinc-400">
+                For when you know your way around: no tips, explanations or blurbs under headings.
+              </span>
+            </span>
+          </label>
           <button
             type="button"
             disabled={look.dismissed_tips.length === 0}
@@ -168,7 +185,7 @@ function SidebarChoices({ look, onChange }: { look: Look; onChange: (change: Par
 
   return (
     <Group label="Sidebar">
-      <p className="mb-2 text-xs text-zinc-500 dark:text-zinc-400">
+      <p className="kw-tip mb-2 text-xs text-zinc-500 dark:text-zinc-400">
         Hold a page in the sidebar and drag it to move it within its section, or use the arrows here. Untick a page to hide it.
       </p>
       <div className="grid max-w-xl gap-3 sm:grid-cols-2">
@@ -210,32 +227,40 @@ function SidebarChoices({ look, onChange }: { look: Look; onChange: (change: Par
 
 /** The accent colours as round swatches (also used by the first-run setup). */
 export function AccentSwatches({ value, onChange }: { value: Accent; onChange: (accent: Accent) => void }) {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const label = ACCENTS.find((a) => a.value === value)?.label ?? "Default";
+  const plain = <span className="h-6 w-6 shrink-0 rounded-full bg-zinc-900 ring-1 ring-zinc-900/10 dark:bg-zinc-100" aria-hidden="true" />;
   return (
-    <div role="radiogroup" aria-label="Accent colour" className="flex flex-wrap gap-2">
-      {ACCENTS.map((accent) => {
-        const chosen = value === accent.value;
-        return (
-          <button
-            key={accent.value}
-            type="button"
-            role="radio"
-            aria-checked={chosen}
-            aria-label={accent.label}
-            title={accent.label}
-            onClick={() => onChange(accent.value)}
-            className={`flex h-9 w-9 items-center justify-center rounded-full ring-offset-2 ring-offset-white transition dark:ring-offset-zinc-900 ${
-              chosen ? "ring-2 ring-zinc-900 dark:ring-white" : "hover:scale-110"
-            } ${accent.swatch ? "" : "bg-zinc-900 dark:bg-zinc-100"}`}
-            style={accent.swatch ? { backgroundColor: accent.swatch } : undefined}
-          >
-            {chosen && (
-              <svg viewBox="0 0 16 16" className={`h-4 w-4 ${accent.swatch ? "text-white" : "text-white dark:text-zinc-900"}`} fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
-                <path d="M3.5 8.5l3 3 6-7" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            )}
-          </button>
-        );
-      })}
-    </div>
+    <>
+      <button
+        type="button"
+        onClick={(event) => setAnchor(anchor ? null : event.currentTarget)}
+        aria-label={`Accent colour: ${label}. Change`}
+        className="inline-flex items-center gap-2.5 rounded-xl border border-zinc-900/10 px-3 py-2 text-sm font-medium hover:bg-zinc-900/5 dark:border-white/10 dark:hover:bg-white/5"
+      >
+        {value === "default" ? (
+          <span className="h-5 w-5 shrink-0 rounded-full bg-zinc-900 ring-1 ring-zinc-900/10 dark:bg-zinc-100" aria-hidden="true" />
+        ) : (
+          <Swatch colour={value} className="h-5 w-5" />
+        )}
+        {label}
+        <span className="h-3.5 w-3.5 text-zinc-400">{icons.down}</span>
+      </button>
+      {anchor && (
+        <Popover anchor={anchor} onClose={() => setAnchor(null)} label="Accent colour" width={232}>
+          <ColourPicker
+            value={value === "default" ? null : value}
+            colours={ACCENTS.filter((a) => a.swatch).map((a) => a.value)}
+            accentLabel="Default"
+            accentHint="No colour: dark in light mode, light in dark mode"
+            accentSwatch={plain}
+            onPick={(colour) => {
+              setAnchor(null);
+              onChange((colour ?? "default") as Accent);
+            }}
+          />
+        </Popover>
+      )}
+    </>
   );
 }

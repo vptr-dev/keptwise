@@ -103,7 +103,7 @@ export function Field({ label, hint, children }: { label: string; hint?: ReactNo
     <label className="block space-y-1.5">
       <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200">{label}</span>
       {children}
-      {hint && <span className="block text-xs text-zinc-500 dark:text-zinc-400">{hint}</span>}
+      {hint && <span className="kw-tip block text-xs text-zinc-500 dark:text-zinc-400">{hint}</span>}
     </label>
   );
 }

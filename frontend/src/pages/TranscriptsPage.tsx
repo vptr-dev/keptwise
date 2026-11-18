@@ -1,16 +1,18 @@
-// Transcripts and notes: everything that turns a saved link into something
-// useful, on one page. 1. Get each video's details, picture and transcript.
-// 2. The AI writes its notes (and files and tags it). 3. Pick a place for
-// the few the AI wasn't sure about. Each step runs in batches with live
-// progress and Pause/Resume/Cancel.
+// Sort (#/sort): everything the AI does happens here, and nowhere else.
+// 1. Get each video's details, picture and transcript. 2. The AI writes its
+// notes and picks a collection and tags. 3. Approve its picks (Unsorted).
+// Then: ask it again, or clear what it did. The other pages only show your
+// saves and let you change them by hand. Each step runs in batches with
+// live progress and Pause/Resume/Cancel.
 import { useCallback, useEffect, useState } from "react";
 
 import { Button, Card, Notice } from "../components/ui";
 import EnrichJobCard from "../features/enrich/EnrichJobCard";
 import { enrichApi, type EnrichOverview, type RecentVideo } from "../features/enrich/enrichApi";
 import RecentVideos from "../features/enrich/RecentVideos";
+import { AiOptions, AskAgain, ClearAi } from "../features/sorting/AiTools";
 import NotesStep from "../features/sorting/NotesStep";
-import ReviewStep from "../features/sorting/ReviewStep";
+import Unsorted from "../features/sorting/Unsorted";
 import { errorText } from "../lib/api";
 import { isActive, onJobUpdate, useJobs, type Job } from "../lib/jobs";
 import { navigate } from "../lib/router";
@@ -69,22 +71,42 @@ export default function TranscriptsPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-8 px-8 py-10">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Transcripts and notes</h1>
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Three steps, all here. The app opens each saved video's public page, keeps its caption and picture, and writes
-          down what's said (on this PC, for free). Then the AI writes notes from it, and asks you about the few it isn't
-          sure where to file.
+        <h1 className="text-2xl font-semibold tracking-tight">Sort</h1>
+        <p className="kw-tip mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+          Everything the AI does happens here. The app reads each saved video's public page and writes down what's said
+          (on this PC, for free); the AI writes notes and suggests where each save goes and how to tag it; you approve.
+          The other pages are yours to look through and change by hand.
         </p>
       </header>
 
       {counts && (
         <Card className="p-4">
-          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             <Count label="Waiting" value={counts.waiting} testId="count-waiting" />
             <Count label="Done" value={counts.done} testId="count-done" />
-            <Count label="No speech" value={counts.no_speech} testId="count-no-speech" />
+            <Count label="No sound" value={counts.no_speech} testId="count-no-speech" title="Read fine, but the video has no sound or speech: the notes use the caption and pictures." />
             <Count label="Couldn't read" value={counts.failed} testId="count-failed" />
+            <Count
+              label="Taken down"
+              value={counts.gone ?? 0}
+              testId="count-gone"
+              href="#/archive/gone"
+              title="Deleted on the platform. They're in Archive → Deleted TikToks."
+            />
           </dl>
+          {(counts.failed_reasons ?? []).length > 0 && (
+            <details className="mt-3 text-sm">
+              <summary className="cursor-pointer text-xs font-medium text-zinc-500 dark:text-zinc-400">Why some couldn't be read</summary>
+              <ul className="mt-2 space-y-1 text-xs text-zinc-600 dark:text-zinc-400">
+                {(counts.failed_reasons ?? []).map((reason) => (
+                  <li key={reason.text} className="flex gap-2">
+                    <span className="w-10 shrink-0 text-right tabular-nums">{reason.count.toLocaleString("en-GB")}</span>
+                    <span>{reason.text}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </Card>
       )}
 
@@ -105,7 +127,7 @@ export default function TranscriptsPage() {
               <Step n={1} />
               Get transcripts
             </h2>
-            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+            <p className="kw-tip mt-1 text-sm text-zinc-500 dark:text-zinc-400">
               Newest saves first. You can pause, cancel or close the app at any time; finished videos are kept.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
@@ -152,7 +174,10 @@ export default function TranscriptsPage() {
           <StepTitle n={2} />
           <NotesStep transcribing={running !== undefined} />
           <StepTitle n={3} />
-          <ReviewStep />
+          <Unsorted limit={5} />
+          <AskAgain />
+          <ClearAi />
+          <AiOptions />
         </>
       )}
 
@@ -174,19 +199,29 @@ function StepTitle({ n }: { n: number }) {
   return (
     <div className="flex items-center gap-3" aria-hidden="true">
       <Step n={n} />
-      <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{n === 2 ? "Then the notes" : "Then the few it wasn't sure about"}</span>
+      <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{n === 2 ? "Then the notes" : "Then approve where they go"}</span>
       <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
     </div>
   );
 }
 
-function Count({ label, value, testId }: { label: string; value: number; testId: string }) {
-  return (
-    <div className="rounded-xl bg-zinc-50 px-3 py-2 dark:bg-zinc-800/60">
+function Count({ label, value, testId, title, href }: { label: string; value: number; testId: string; title?: string; href?: string }) {
+  const body = (
+    <>
       <dt className="text-xs text-zinc-500 dark:text-zinc-400">{label}</dt>
       <dd className="text-xl font-semibold tabular-nums" data-testid={testId}>
         {value.toLocaleString("en-GB")}
       </dd>
+    </>
+  );
+  const box = "block rounded-xl bg-zinc-50 px-3 py-2 dark:bg-zinc-800/60";
+  return href && value > 0 ? (
+    <a href={href} title={title} className={`${box} transition hover:bg-zinc-100 dark:hover:bg-zinc-800`}>
+      {body}
+    </a>
+  ) : (
+    <div title={title} className={box}>
+      {body}
     </div>
   );
 }

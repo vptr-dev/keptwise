@@ -22,54 +22,50 @@ def pick(name: str, fit: str) -> CollectionPick:
     return CollectionPick(name=name, fit=fit)  # type: ignore[arg-type]
 
 
+AUTO = SortingSettings(auto_sort=True)
+
+
 def run(settings: SortingSettings | None = None, picks: list[CollectionPick] | None = None,
-        idea: str | None = None, rules: list[str] | None = None, platform: list[str] | None = None,
-        user: bool = False):
-    return decide(settings or SortingSettings(), NAMES, picks or [], idea, rules or [], platform or [], user)
+        rules: list[str] | None = None, platform: list[str] | None = None, user: bool = False):
+    return decide(settings or AUTO, NAMES, picks or [], rules or [], platform or [], user)
 
 
 # ---------- decide ----------
 
 
-def test_a_confident_pick_is_filed() -> None:
-    decision = run(picks=[pick("cooking", "clear")])  # names match whatever the case
-    assert decision.links == [Link("Cooking", "ai", 0.95, "mine")]
-    assert not decision.needs_review and decision.reason is None
+def test_by_default_the_ais_pick_is_only_a_suggestion() -> None:
+    decision = run(SortingSettings(), picks=[pick("cooking", "clear")])  # names match whatever the case
+    assert decision.links == []
     assert decision.suggestions == [{"name": "Cooking", "confidence": 0.95}]
 
 
-def test_an_unsure_pick_waits_for_review() -> None:
+def test_with_auto_filing_on_a_confident_pick_is_filed() -> None:
+    decision = run(picks=[pick("cooking", "clear")])
+    assert decision.links == [Link("Cooking", "ai", 0.95, "mine")]
+    assert decision.suggestions == [{"name": "Cooking", "confidence": 0.95}]
+
+
+def test_an_unsure_pick_stays_a_suggestion() -> None:
     decision = run(picks=[pick("Music", "maybe")])
-    assert decision.links == []
-    assert decision.needs_review
-    assert decision.reason == "Not sure where this goes. The AI's best guess is Music (“maybe”)."
+    assert decision.links == [] and decision.suggestions == [{"name": "Music", "confidence": 0.5}]
 
 
-def test_the_review_threshold_is_the_users_choice() -> None:
-    assert not run(SortingSettings(review_below=0.4), picks=[pick("Music", "maybe")]).needs_review
-    assert run(SortingSettings(review_below=0.9), picks=[pick("Music", "likely")]).needs_review
+def test_the_threshold_is_the_users_choice() -> None:
+    assert run(SortingSettings(auto_sort=True, review_below=0.4), picks=[pick("Music", "maybe")]).links
+    assert not run(SortingSettings(auto_sort=True, review_below=0.9), picks=[pick("Music", "likely")]).links
 
 
-def test_ideas_for_new_collections_wait_for_approval() -> None:
-    decision = run(picks=[pick("Music", "guess")], idea="Car stuff")
-    assert decision.needs_review and decision.new_collection == "Car stuff"
-    assert decision.reason == "The AI suggests a new collection: “Car stuff”. Closest in your list: Music."
-    # A name that isn't in the list counts as an idea too.
-    assert run(picks=[pick("Watch later", "clear")]).new_collection == "Watch later"
+def test_the_ai_only_ever_picks_existing_collections() -> None:
+    decision = run(picks=[pick("Car stuff", "clear"), pick("Music", "guess")])
+    assert decision.links == [] and decision.suggestions == [{"name": "Music", "confidence": 0.25}]
+    # Old saved settings that let it suggest new names are read as "my list".
+    assert SortingSettings.model_validate({"mode": "ai_decides"}).mode == "my_list"
+    assert SortingSettings.model_validate({"mode": "my_list_plus_ideas"}).mode == "my_list"
 
 
-def test_only_my_list_never_suggests_new_ones() -> None:
-    decision = run(SortingSettings(mode="my_list"), picks=[pick("Watch later", "clear")], idea="Cars")
-    assert decision.new_collection is None and decision.needs_review
-    assert decision.reason == "The AI couldn't match it to any of your collections."
-
-
-def test_the_ai_never_makes_collections_by_itself() -> None:
-    # The old "AI decides" setting now means "my list, plus ideas I approve".
-    settings = SortingSettings.model_validate({"mode": "ai_decides"})
-    assert settings.mode == "my_list_plus_ideas"
-    decision = run(settings, picks=[pick("Car stuff", "likely")])
-    assert decision.links == [] and decision.needs_review and decision.new_collection == "Car stuff"
+def test_switched_off_collections_are_never_picked() -> None:
+    decision = decide(AUTO, NAMES, [pick("Music", "clear")], [], [], False, blocked=["music"])
+    assert decision.links == [] and decision.suggestions == []
 
 
 def test_extra_collections_need_the_ai_to_be_very_sure() -> None:
@@ -77,19 +73,21 @@ def test_extra_collections_need_the_ai_to_be_very_sure() -> None:
     assert [link.name for link in two.links] == ["Electronics", "Technology"]
     maybe = run(picks=[pick("Electronics", "clear"), pick("Technology", "likely")])
     assert [link.name for link in maybe.links] == ["Electronics"]
-    one = run(SortingSettings(max_collections=1), picks=[pick("Electronics", "clear"), pick("Technology", "clear")])
+    one = run(SortingSettings(auto_sort=True, max_collections=1),
+              picks=[pick("Electronics", "clear"), pick("Technology", "clear")])
     assert [link.name for link in one.links] == ["Electronics"]
 
 
-def test_rules_and_platform_collections_come_first() -> None:
-    decision = run(picks=[pick("Music", "guess")], rules=["Japan trip"], platform=["Pasta ideas"])
-    assert decision.links == [Link("Japan trip", "rule", 1.0, "mine"), Link("Pasta ideas", "platform", None, "platform")]
-    assert not decision.needs_review
+def test_rules_and_platform_collections_apply_either_way() -> None:
+    for settings in (SortingSettings(), AUTO):
+        decision = run(settings, picks=[pick("Music", "guess")], rules=["Japan trip"], platform=["Pasta ideas"])
+        assert decision.links == [Link("Japan trip", "rule", 1.0, "mine"),
+                                  Link("Pasta ideas", "platform", None, "platform")]
 
 
 def test_the_users_own_choice_stops_the_ai_adding_more() -> None:
     decision = run(picks=[pick("Cooking", "clear")], user=True)
-    assert decision.links == [] and not decision.needs_review
+    assert decision.links == []
 
 
 def test_rules_match_creators_and_whole_words() -> None:
@@ -114,12 +112,12 @@ def test_platform_names_are_split() -> None:
 def test_settings_defaults_are_the_recommended_answers(tmp_path: Path) -> None:
     repo = SettingsRepo(Database(tmp_path / "x.db"))
     settings = load(repo)
-    assert settings.mode == "my_list_plus_ideas"
+    assert settings.mode == "my_list"
+    assert not settings.auto_sort and not settings.auto_tag  # the AI suggests; you decide
     assert settings.platform_collections == "hint"
     assert SortingSettings.model_validate({"platform_collections": "keep", "tags_per_video": 15}).tags_per_video == 10
     assert settings.max_collections == 2
     assert settings.review_below == 0.6
-    assert settings.safe_to_unsave == "processed"
     assert settings.kind_steps == DEFAULT_KIND_STEPS
 
     settings.rules.append(Rule(field="text", value="Japan", collection="Japan trip"))
@@ -131,7 +129,7 @@ def test_settings_defaults_are_the_recommended_answers(tmp_path: Path) -> None:
     assert "spaceship" not in again.kind_steps and again.kind_steps["travel"] == DEFAULT_KIND_STEPS["travel"]
 
     repo.set("sorting", {"mode": "nonsense"})
-    assert load(repo).mode == "my_list_plus_ideas"  # a broken value falls back to the defaults
+    assert load(repo).mode == "my_list"  # an old or broken value never stops the app
 
 
 # ---------- prompts ----------
@@ -146,12 +144,11 @@ def test_the_notes_question_has_everything_the_ai_needs() -> None:
     assert "- Want to go" in text and "1 to 2 collections" in text and '"maybe"' in text
     assert DEFAULT_KIND_STEPS["recipe"] in text
     assert "saved it in their TikTok collection: Recipes" in text
-    assert "new_collection" in text
+    assert "new_collection" not in text and "Only use names from the list" in text
 
-    hidden = notes_messages(item, None, SortingSettings(platform_collections="ignore", mode="my_list"), NAMES)
+    hidden = notes_messages(item, None, SortingSettings(platform_collections="ignore"), NAMES)
     assert "Recipes" not in hidden[1]["content"].split("HOW TO SORT")[0]
     assert "Transcript: (not available)" in hidden[1]["content"]
-    assert 'Set "new_collection" to null.' in hidden[1]["content"]
 
 
 def test_the_sort_question_reuses_the_notes() -> None:
@@ -247,3 +244,17 @@ def test_without_platform_collections_a_starter_list_is_used(tmp_path: Path) -> 
     collections.seed_once(db, SettingsRepo(db))
     with db.connect() as conn:
         assert collections.names(conn) == collections.STARTER_COLLECTIONS
+
+
+def test_notes_that_say_they_were_given_nothing_are_spotted() -> None:
+    from app.ai.sorting.prompts import empty_notes
+
+    def answer(title: str, summary: str) -> NotesAnswer:
+        return NotesAnswer(title=title, summary=summary, kind="other", collections=[pick("Music", "guess")])
+
+    assert empty_notes(answer("No video provided", "Please provide a video, transcript, or caption."))
+    assert empty_notes(answer("Please provide a video transcript or caption", "x"))
+    assert empty_notes(answer("A clip", "No video content was provided to summarize."))
+    assert empty_notes(answer("Video", "I can't see the video, sorry."))
+    assert not empty_notes(answer("No-bake cheesecake", "Please provide your own biscuits: this one is easy."))
+    assert not empty_notes(answer("Carbonara", "A quick pasta with eggs and cheese."))

@@ -1,8 +1,9 @@
-// Step 2 on the Transcripts page: the AI writes notes for the saves that have
-// a transcript (title, summary, key details, steps), and with them files and
-// tags each save the way the Collections and Tags pages say. Start a batch
-// here, or let notes start by themselves whenever transcripts finish.
-import { useCallback, useEffect, useState } from "react";
+// Step 2 on the Sort page: the AI writes notes for the saves that have a
+// transcript (title, summary, key details, steps), and picks the collection
+// and tags that fit. By default those picks are suggestions you approve in
+// Unsorted; two switches let it file and tag by itself instead. Start a
+// batch here, or let notes start by themselves whenever transcripts finish.
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import JobCard from "../../components/JobCard";
 import { icons } from "../../components/icons";
@@ -23,6 +24,8 @@ export default function NotesStep({ transcribing = false }: { transcribing?: boo
   const [problem, setProblem] = useState<{ text: string; code: string | null } | null>(null);
   const [pending, setPending] = useState<{ text: string; go: () => void } | null>(null);
   const [auto, setAuto] = useAiSwitch("auto_notes", false);
+  const [autoSort, setAutoSort] = useAiSwitch("auto_sort", false);
+  const [autoTag, setAutoTag] = useAiSwitch("auto_tag", false);
 
   const refresh = useCallback(() => {
     sortingApi.overview().then(setNotes).catch(() => undefined);
@@ -72,11 +75,11 @@ export default function NotesStep({ transcribing = false }: { transcribing?: boo
           <h2 className="font-medium">Write the notes</h2>
           <span className="ml-auto text-xs text-zinc-500">Using {notes?.ai_label ?? "…"}</span>
         </div>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400" data-testid="notes-waiting">
+        <p className="kw-tip mt-1 text-sm text-zinc-500 dark:text-zinc-400" data-testid="notes-waiting">
           {waiting > 0
             ? `${waiting.toLocaleString()} save${waiting === 1 ? " has" : "s have"} a transcript and ${waiting === 1 ? "is" : "are"} waiting for notes.`
             : "Every save with a transcript has its notes."}{" "}
-          The AI writes a title, a summary, the key details and the steps, and files and tags the save as it goes.
+          The AI writes a title, a summary, the key details and the steps, and picks the collection and tags that fit.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           {sizes.map((size) => (
@@ -98,24 +101,35 @@ export default function NotesStep({ transcribing = false }: { transcribing?: boo
         {cloud && waiting > limit && (
           <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">A cloud AI does at most {limit} at a time, so each batch stays cheap.</p>
         )}
-        <label className="mt-4 flex items-start gap-3 border-t border-zinc-100 pt-4 dark:border-zinc-800">
-          <input
-            type="checkbox"
-            role="switch"
-            className="mt-0.5 h-4 w-4 accent-indigo-600"
-            checked={(auto ?? false) && !cloud}
-            disabled={auto === null || cloud}
-            onChange={(e) => setAuto(e.target.checked)}
+        <div className="mt-4 space-y-3 border-t border-zinc-100 pt-4 dark:border-zinc-800">
+          <Switch
+            label="Put into collections automatically (best fit)"
+            on={autoSort}
+            onChange={setAutoSort}
+            hint={
+              autoSort
+                ? "The AI puts each save in the collection that fits best. Ones it isn't sure about wait in Unsorted."
+                : "Off: every save waits in Unsorted with the AI's suggestion, for you to accept or change."
+            }
           />
-          <span>
-            <span className="block text-sm font-medium">Write notes by themselves when transcripts finish</span>
-            <span className="block text-xs text-zinc-500 dark:text-zinc-400">
-              {cloud
+          <Switch
+            label="Add tags automatically"
+            on={autoTag}
+            onChange={setAutoTag}
+            hint={autoTag ? "The AI's tags go straight on." : "Off: the AI's tags are suggestions you add with one click."}
+          />
+          <Switch
+            label="Write notes by themselves when transcripts finish"
+            on={cloud ? false : auto}
+            disabled={cloud}
+            onChange={setAuto}
+            hint={
+              cloud
                 ? "Only with an AI on this PC: a cloud AI costs money, so it always waits for you to start it."
-                : `Then one press on “Get transcripts” does everything.${transcribing && auto ? " Notes will start when this transcripts job ends." : ""}`}
-            </span>
-          </span>
-        </label>
+                : `Then one press on “Get transcripts” does everything.${transcribing && auto ? " Notes will start when this transcripts job ends." : ""}`
+            }
+          />
+        </div>
       </Card>
 
       {pending && (
@@ -145,5 +159,36 @@ export default function NotesStep({ transcribing = false }: { transcribing?: boo
       )}
       {current && <JobCard job={current} name="AI notes job" />}
     </>
+  );
+}
+
+function Switch({
+  label,
+  hint,
+  on,
+  onChange,
+  disabled = false,
+}: {
+  label: string;
+  hint: ReactNode;
+  on: boolean | null;
+  onChange: (on: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="flex items-start gap-3">
+      <input
+        type="checkbox"
+        role="switch"
+        className="mt-0.5 h-4 w-4 accent-indigo-600"
+        checked={on ?? false}
+        disabled={on === null || disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span>
+        <span className="block text-sm font-medium">{label}</span>
+        <span className="kw-tip block text-xs text-zinc-500 dark:text-zinc-400">{hint}</span>
+      </span>
+    </label>
   );
 }

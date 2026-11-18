@@ -35,7 +35,9 @@ def test_a_deleted_save_moves_to_the_archive_and_comes_back(api: TestClient, svc
     assert card["deleted"] is True and card["deleted_at"]
     assert library_ids(api) == [two]
     assert library_ids(api, "&archive=deleted") == [one]
-    assert api.get("/api/archive").json() == {"deleted": 1, "unsaved": 0}
+    assert api.get("/api/archive").json() == {"deleted": 1, "unsaved": 0, "gone": 0}
+    assert card["safe_to_unsave"] is True  # you don't want it: it goes on the Unsave list
+    assert [item["id"] for item in api.get("/api/unsave").json()["items"]] == [one]
     # It no longer counts anywhere: collections, tags, the platform picker, the sidebar.
     listed = {c["name"]: c["count"] for c in api.get("/api/collections").json()["collections"]}
     assert listed["Meals"] == 0
@@ -55,7 +57,7 @@ def test_unsaved_saves_are_listed_in_the_archive_and_stay_in_the_library(api: Te
     assert card["unsaved"] is True and card["unsaved_at"]
     assert library_ids(api, "&archive=unsaved") == [two]
     assert library_ids(api) == [one, two]  # the notes are still useful: it stays
-    assert api.get("/api/archive").json() == {"deleted": 0, "unsaved": 1}
+    assert api.get("/api/archive").json() == {"deleted": 0, "unsaved": 1, "gone": 0}
     api.post("/api/items/bulk", json={"item_ids": [two], "action": "still_saved"})
     assert library_ids(api, "&archive=unsaved") == []
 
@@ -104,3 +106,16 @@ def test_an_import_never_brings_back_what_was_deleted_for_good(api: TestClient, 
     assert after["result"]["new"] == 0 and after["result"]["platforms"][0]["deleted_before"] == 1
     assert after["message"].endswith("1 you deleted for good stay deleted.")
     assert len(library_ids(api)) == 2 and library_ids(api, "&archive=deleted") == []
+
+
+def test_saves_taken_down_on_the_platform_have_their_own_part_of_the_archive(api: TestClient, svc: AppServices) -> None:
+    one, two = add(svc, 1), add(svc, 2)
+    with svc.db.connect() as conn:
+        update_item(conn, one, safe_to_unsave=1)
+        update_item(conn, two, status="failed", error="This video was deleted or isn't available any more.",
+                    gone_at="2026-11-18T00:00:00Z", safe_to_unsave=1)
+    assert library_ids(api) == [one]  # not in the Library, collections or the Unsave list
+    assert library_ids(api, "&archive=gone") == [two]
+    assert api.get("/api/archive").json() == {"deleted": 0, "unsaved": 0, "gone": 1}
+    assert [item["id"] for item in api.get("/api/unsave").json()["items"]] == [one]
+    assert api.get(f"/api/library/items?archive=gone").json()["items"][0]["gone"] is True

@@ -33,7 +33,7 @@ test("start a chat, ask, and open a save the answer used", async () => {
     "GET /api/items/1": { item: libraryItem(), transcript: "boil the pasta" },
   });
   render(<AssistantPage chatId={null} />);
-  expect(await screen.findByRole("heading", { name: "What do you want to know?" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "What can I help with?" })).toBeInTheDocument();
   expect(screen.getByRole("list", { name: "Ideas" }).children).toHaveLength(6); // an even grid
   // With "All my saves", only Ask anything works; the others need a group.
   expect(screen.getByRole("button", { name: /^Summarise/ })).toBeDisabled();

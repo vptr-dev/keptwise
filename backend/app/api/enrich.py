@@ -31,18 +31,30 @@ class SpeechSettings(BaseModel):
     device: str | None = None
 
 
-def _counts(conn: sqlite3.Connection) -> dict[str, int]:
-    rows = conn.execute("SELECT status, COUNT(*) AS n FROM items WHERE deleted_at IS NULL GROUP BY status").fetchall()
+def _counts(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Saves taken down on the platform (gone_at) are left out: they're in
+    the Archive's Deleted TikToks, and counted on their own."""
+    rows = conn.execute(
+        "SELECT status, COUNT(*) AS n FROM items WHERE deleted_at IS NULL AND gone_at IS NULL GROUP BY status"
+    ).fetchall()
     by_status = {row["status"]: int(row["n"]) for row in rows}
     no_speech = conn.execute(
-        "SELECT COUNT(*) FROM transcripts WHERE text = ''"
+        "SELECT COUNT(*) FROM transcripts t JOIN items i ON i.id = t.item_id "
+        "WHERE t.text = '' AND i.deleted_at IS NULL"
     ).fetchone()[0]
+    gone = conn.execute("SELECT COUNT(*) FROM items WHERE gone_at IS NOT NULL AND deleted_at IS NULL").fetchone()[0]
+    reasons = conn.execute(
+        """SELECT coalesce(error, 'No reason given.') AS text, COUNT(*) AS n FROM items
+           WHERE status = 'failed' AND gone_at IS NULL AND deleted_at IS NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 6"""
+    ).fetchall()
     return {
         "total": sum(by_status.values()),
         "waiting": by_status.get("imported", 0),
         "done": by_status.get("enriched", 0) + by_status.get("processed", 0),
         "failed": by_status.get("failed", 0),
         "no_speech": int(no_speech),
+        "gone": int(gone),
+        "failed_reasons": [{"text": row["text"], "count": int(row["n"])} for row in reasons],
     }
 
 
@@ -92,7 +104,8 @@ def start(body: StartBody, svc: AppServices = Depends(services)) -> dict[str, An
     limit = body.count if body.count is not None else -1  # -1 = no limit in SQLite
     with svc.db.connect() as conn:
         rows = conn.execute(
-            "SELECT id FROM items WHERE status = ? AND deleted_at IS NULL ORDER BY saved_at DESC, id DESC LIMIT ?",
+            "SELECT id FROM items WHERE status = ? AND deleted_at IS NULL AND gone_at IS NULL "
+            "ORDER BY saved_at DESC, id DESC LIMIT ?",
             (status, limit),
         ).fetchall()
     ids = [int(row["id"]) for row in rows]

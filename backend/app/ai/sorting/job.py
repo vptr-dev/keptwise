@@ -30,6 +30,7 @@ from app.ai.sorting.prompts import (
     SortAnswer,
     TagsAnswer,
     clean_tags,
+    empty_notes,
     notes_messages,
     sort_messages,
     tags_messages,
@@ -49,6 +50,7 @@ T = TypeVar("T", bound=BaseModel)
 # These mean the AI can't be used at all right now, so every item would fail.
 STOP_CODES = {"unreachable", "bad_key", "missing_key", "missing_model", "model_missing", "rate_limited"}
 STOP_AFTER = 2
+EMPTY_NOTES = "The AI's notes for this one didn't make sense, so they weren't kept. Write notes again to retry."
 
 
 def now_iso() -> str:
@@ -92,7 +94,7 @@ class Sorter:
         self.pictures_folder = db.path.parent / "thumbnails"
         self.can_see = self.settings.look_at_pictures
         collections.seed_once(db, settings_repo)
-        self.counts = {"sorted": 0, "review": 0, "failed": 0, "skipped": 0}
+        self.counts = {"sorted": 0, "unsorted": 0, "failed": 0, "skipped": 0}
         # Re-sort skips items sorted after the job was started, so Resume
         # doesn't redo them. The route saves that moment in the job.
         self.started = str(ctx.params.get("since") or now_iso())
@@ -194,25 +196,27 @@ class Sorter:
         messages = notes_messages(item, item["transcript"], self.settings, self._choices(), self._popular_tags())
         allowed = self.settings.my_tags if self.settings.tag_mode == "only_mine" else None
         answer = tidy(self._ask(item, messages, NotesAnswer), self.settings.tags_per_video, allowed)
-        if not self.settings.auto_tag:
-            answer.tags = []  # tagging by hand: the AI writes notes only
+        if empty_notes(answer):
+            # Once more, plainly; if it still says it was given nothing, keep nothing.
+            answer = tidy(chat_json(self.provider, messages, NotesAnswer), self.settings.tags_per_video, allowed)
+            if empty_notes(answer):
+                self._record_error(item["id"], EMPTY_NOTES)
+                return "failed"
         decision = self._decide(item, answer, names, has_user_links=self._has_user_links(item["id"]))
-        if not self.settings.auto_sort:
-            # Organising by hand: keep what rules and linked platform
-            # collections decided, drop the AI's own picks, and don't ask.
-            decision = Decision(links=[link for link in decision.links if link.source != "ai"],
-                                needs_review=False, reason=None)
+        # Tags: put on straight away, or kept as suggestions to accept.
+        suggested_tags = [] if self.settings.auto_tag else answer.tags
         with self.db.connect() as conn:
             conn.execute(
                 """INSERT INTO ai_results (item_id, category, title, summary, steps_json, tags, provider, model,
-                                           confidence, kind, facts_json, suggestions_json, new_collection)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                           confidence, kind, facts_json, suggestions_json, new_collection,
+                                           tag_suggestions_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
                    ON CONFLICT (item_id) DO UPDATE SET
                      category = excluded.category, title = excluded.title, summary = excluded.summary,
                      steps_json = excluded.steps_json, tags = excluded.tags, provider = excluded.provider,
                      model = excluded.model, confidence = excluded.confidence, kind = excluded.kind,
                      facts_json = excluded.facts_json, suggestions_json = excluded.suggestions_json,
-                     new_collection = excluded.new_collection,
+                     new_collection = NULL, tag_suggestions_json = excluded.tag_suggestions_json,
                      updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now')""",
                 (
                     item["id"],
@@ -227,13 +231,13 @@ class Sorter:
                     answer.kind,
                     json.dumps(answer.facts),
                     json.dumps(decision.suggestions),
-                    decision.new_collection,
+                    json.dumps(suggested_tags),
                 ),
             )
             if self.settings.auto_tag:
                 tags.replace_source(conn, item["id"], answer.tags, "ai")
             self._apply(conn, item, decision, processed=True)
-        return "review" if decision.needs_review else "sorted"
+        return self._outcome(item["id"])
 
     def _sort(self, item: dict[str, Any]) -> str:
         names = self._known_names()
@@ -249,17 +253,22 @@ class Sorter:
         decision = self._decide(item, answer, names, has_user_links=has_user)
         with self.db.connect() as conn:
             conn.execute(
-                "UPDATE ai_results SET category = ?, confidence = ?, suggestions_json = ?, new_collection = ?, "
+                "UPDATE ai_results SET category = ?, confidence = ?, suggestions_json = ?, new_collection = NULL, "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE item_id = ?",
-                (self._category(decision), decision.best_confidence, json.dumps(decision.suggestions),
-                 decision.new_collection, item["id"]),
+                (self._category(decision), decision.best_confidence, json.dumps(decision.suggestions), item["id"]),
             )
             self._apply(conn, item, decision, processed=False)
-        return "review" if decision.needs_review else "sorted"
+        return self._outcome(item["id"])
+
+    def _outcome(self, item_id: int) -> str:
+        """sorted: it's in a collection; unsorted: it waits in Unsorted."""
+        with self.db.connect() as conn:
+            placed = conn.execute("SELECT 1 FROM item_collections WHERE item_id = ?", (item_id,)).fetchone()
+        return "sorted" if placed else "unsorted"
 
     def _tags(self, item: dict[str, Any]) -> str:
-        """Ask only for tags (the AI tags button). Replaces the AI's old tags;
-        the user's own stay."""
+        """Ask only for tags. With "Add tags automatically" on, they replace
+        the AI's old tags (the user's own stay); off, they're suggestions."""
         notes = {"title": item.get("notes_title"), "summary": item.get("notes_summary")}
         with self.db.connect() as conn:
             popular = [str(row["name"]) for row in conn.execute(
@@ -279,9 +288,14 @@ class Sorter:
                 # No room for new tags: keep to the ones that exist.
                 allowed = [str(row["name"]) for row in conn.execute("SELECT name FROM tags")]
         answer = self._ask(item, messages, TagsAnswer)
+        picked = clean_tags(answer.tags, most, allowed)
         with self.db.connect() as conn:
-            tags.replace_source(conn, item["id"], clean_tags(answer.tags, most, allowed), "ai")
-            tags.drop_unused(conn)
+            if self.settings.auto_tag:
+                tags.replace_source(conn, item["id"], picked, "ai")
+                tags.drop_unused(conn)
+            else:
+                conn.execute("UPDATE ai_results SET tag_suggestions_json = ? WHERE item_id = ?",
+                             (json.dumps(picked), item["id"]))
         return "sorted"
 
     def _decide(self, item: dict[str, Any], answer: SortAnswer | NotesAnswer, names: list[str],
@@ -295,7 +309,6 @@ class Sorter:
             self.settings,
             names,
             answer.collections,
-            answer.new_collection,
             rules,
             linked,
             has_user_links,
@@ -322,18 +335,12 @@ class Sorter:
         collections.replace_links(conn, item["id"], decision.links, keep_sources=keep,
                                   new_parent=self._ai_folder(conn))
         tags.replace_source(conn, item["id"], rule_tag_hits(self.settings.rules, item, item["transcript"]), "rule")
-        fields: dict[str, Any] = {
-            "needs_review": int(decision.needs_review),
-            "review_reason": decision.reason,
-            "sorted_at": now_iso(),
-            "error": None,
-        }
+        fields: dict[str, Any] = {"needs_review": 0, "review_reason": None, "sorted_at": now_iso(), "error": None}
         if processed:
-            fields.update(status="processed", processed_at=now_iso())
-            if self.settings.safe_to_unsave == "processed":
-                fields["safe_to_unsave"] = 1
+            # Its notes are in: everything useful is kept here now, so it can
+            # be unsaved on the platform (the Unsave page).
+            fields.update(status="processed", processed_at=now_iso(), safe_to_unsave=1)
         update_item(conn, item["id"], **fields)
-        tags.sync_no_collection(conn, item["id"], self.settings.no_collection_tag)
 
     def _ai_folder(self, conn: Any) -> int | None:
         """The folder new AI collections go in (Settings), if it still exists."""
@@ -348,12 +355,12 @@ class Sorter:
 
     def _summary(self, task: str) -> dict[str, Any]:
         counts = self.counts
-        worked = counts["sorted"] + counts["review"]
+        worked = counts["sorted"] + counts["unsorted"]
         parts = []
         if counts["sorted"]:
             parts.append(f"{counts['sorted']:,} sorted")
-        if counts["review"]:
-            parts.append(f"{counts['review']:,} waiting in Needs review")
+        if counts["unsorted"]:
+            parts.append(f"{counts['unsorted']:,} in Unsorted with a suggestion")
         if counts["failed"]:
             parts.append(f"{counts['failed']:,} failed")
         if not parts:

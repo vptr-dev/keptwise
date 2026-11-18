@@ -33,7 +33,7 @@ export default function UpdatesSettings({
   return (
     <Card>
       <h2 className="mb-1 text-lg font-medium">About and updates</h2>
-      <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
+      <p className="kw-tip mb-4 text-sm text-zinc-500 dark:text-zinc-400">
         {status ? `You have version ${status.current}.` : "Loading…"} Keptwise is open source and keeps
         everything on this computer.
       </p>
@@ -49,7 +49,7 @@ export default function UpdatesSettings({
             />
             <span>
               Check for a new version once a day
-              <span className="block text-xs text-zinc-500 dark:text-zinc-400">
+              <span className="kw-tip block text-xs text-zinc-500 dark:text-zinc-400">
                 Asks GitHub for the newest version number. Nothing about you or your saves is sent, and nothing is
                 downloaded until you press Update now.
               </span>

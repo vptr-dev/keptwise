@@ -1,11 +1,12 @@
 // What the right-click menu on a save offers, wherever the save is shown
-// (Library, a collection, Needs review, a plan). Changes say so in a small
-// message with Undo where it can be undone.
+// (Library, a collection, Unsorted, a plan). Changes say so in a small
+// message with Undo where it can be undone. Unsaving is only on the Unsave
+// page, and the AI's sorting only on the Sort page.
 import type { Ask } from "../../components/Dialog";
 import type { MenuItem } from "../../components/ContextMenu";
 import { toast } from "../../components/Toasts";
 import { icons } from "../../components/icons";
-import { errorCode, errorText } from "../../lib/api";
+import { errorText } from "../../lib/api";
 import { navigate } from "../../lib/router";
 import { announceChange, organizeApi } from "../organize/organizeApi";
 import { sortingApi, type ItemCard } from "../sorting/sortingApi";
@@ -30,32 +31,19 @@ async function attempt(task: () => Promise<unknown>, done?: string, undo?: () =>
   }
 }
 
-/** Start an AI job for this one save, asking first when it costs money. */
-async function aiJob(ask: Ask, start: (confirm: boolean) => Promise<unknown>, started: string) {
-  try {
-    await start(false);
-    toast(started);
-  } catch (e) {
-    if (errorCode(e) !== "confirm_cost") return toast(errorText(e), { tone: "error" });
-    if (await ask.confirm({ title: "Use the cloud AI?", body: errorText(e), confirm: "Yes, go ahead" })) {
-      await start(true).then(() => toast(started)).catch((err) => toast(errorText(err), { tone: "error" }));
-    }
-  }
-}
-
-export function saveMenuItems(raw: LibraryItem | ItemCard, { onChange, ask, from, extra = [] }: SaveMenuOptions): MenuItem[] {
+export function saveMenuItems(raw: LibraryItem | ItemCard, { onChange, from, extra = [] }: SaveMenuOptions): MenuItem[] {
   const item = raw as LibraryItem;
   const merge = (card: ItemCard | LibraryItem) => {
     onChange({ ...item, ...card } as LibraryItem);
     announceChange();
   };
-  const patch = (change: Partial<Pick<LibraryItem, "done" | "safe_to_unsave" | "unsaved" | "deleted">>) => libraryApi.patch(item.id, change).then(merge);
+  const patch = (change: Partial<Pick<LibraryItem, "deleted">>) => libraryApi.patch(item.id, change).then(merge);
   const platform = item.platform_name;
 
   const items: MenuItem[] = [
     ...extra,
     ...(extra.length ? [{ kind: "divider" } as MenuItem] : []),
-    { label: "Open", icon: icons.library, onSelect: () => navigate(`/item/${item.id}`) },
+    { label: "Open", icon: icons.open, onSelect: () => navigate(`/item/${item.id}`) },
     {
       label: `Open on ${platform}`,
       icon: icons.external,
@@ -89,45 +77,15 @@ export function saveMenuItems(raw: LibraryItem | ItemCard, { onChange, ask, from
   }
   items.push(
     { kind: "divider" },
-    item.unsaved
-      ? { label: `Still saved on ${platform}`, icon: icons.unsave, onSelect: () => void attempt(() => patch({ unsaved: false }), "Marked as still saved.") }
-      : {
-          label: `I've unsaved it on ${platform}`,
-          icon: icons.unsave,
-          onSelect: () => void attempt(() => patch({ unsaved: true }), `Marked as unsaved on ${platform}.`, () => patch({ unsaved: false })),
-        },
-    {
-      label: item.safe_to_unsave ? "Take off the Unsave list" : "Put on the Unsave list",
-      icon: icons.list,
-      onSelect: () =>
-        void attempt(
-          () => patch({ safe_to_unsave: !item.safe_to_unsave }),
-          item.safe_to_unsave ? "Taken off the Unsave list." : "Put on the Unsave list.",
-          () => patch({ safe_to_unsave: !!item.safe_to_unsave }),
-        ),
-    },
-    { kind: "divider" },
-    { kind: "heading", label: "AI" },
     { label: "Ask the AI Assistant about it", icon: icons.chat, onSelect: () => navigate(`/chat?items=${item.id}`) },
-    {
-      label: "Sort it into collections",
-      icon: icons.sparkle,
-      disabled: item.status !== "processed",
-      onSelect: () => void aiJob(ask, (confirm) => sortingApi.resort("all", true, confirm, [item.id]), "AI sort started for this save."),
-    },
-    {
-      label: "Suggest tags",
-      icon: icons.sparkle,
-      disabled: item.status !== "processed",
-      onSelect: () => void aiJob(ask, (confirm) => sortingApi.aiTags("with_notes", confirm, [item.id]), "AI tags started for this save."),
-    },
     { kind: "divider" },
     {
       label: "Delete",
       icon: icons.trash,
       danger: true,
       hint: "to the Archive",
-      onSelect: () => void attempt(() => patch({ deleted: true }), "Deleted. It's in the Archive.", () => patch({ deleted: false })),
+      onSelect: () =>
+        void attempt(() => patch({ deleted: true }), "Deleted: it's in the Archive and on the Unsave list.", () => patch({ deleted: false })),
     },
   );
   return items;
@@ -136,7 +94,7 @@ export function saveMenuItems(raw: LibraryItem | ItemCard, { onChange, ask, from
 /** The menu when several picked saves are right-clicked together. */
 export function selectionMenuItems(ids: number[], { onDone, onClear }: { onDone: () => void; onClear: () => void }): MenuItem[] {
   const many = `${ids.length} saves`;
-  const bulk = (action: "delete" | "restore" | "unsaved" | "safe", done: string, undo?: "restore") =>
+  const bulk = (action: "delete" | "restore", done: string, undo?: "restore") =>
     attempt(
       () => organizeApi.bulk({ item_ids: ids, action }).then(onDone),
       done,
@@ -152,10 +110,7 @@ export function selectionMenuItems(ids: number[], { onDone, onClear }: { onDone:
     },
     { label: "Make a plan with them", icon: icons.plans, onSelect: () => navigate(`/chat?tool=plan&items=${ids.slice(0, 30).join(",")}`) },
     { kind: "divider" },
-    { label: "Put on the Unsave list", icon: icons.list, onSelect: () => void bulk("safe", `Put ${many} on the Unsave list.`) },
-    { label: "I've unsaved them", icon: icons.unsave, onSelect: () => void bulk("unsaved", `Marked ${many} as unsaved.`) },
-    { kind: "divider" },
-    { label: `Delete ${many}`, icon: icons.trash, danger: true, hint: "to the Archive", onSelect: () => void bulk("delete", `Deleted ${many}. They're in the Archive.`, "restore") },
+    { label: `Delete ${many}`, icon: icons.trash, danger: true, hint: "to the Archive", onSelect: () => void bulk("delete", `Deleted ${many}: they're in the Archive and on the Unsave list.`, "restore") },
     { kind: "divider" },
     { label: "Clear the selection", icon: icons.close, hint: "Esc", onSelect: onClear },
   ];

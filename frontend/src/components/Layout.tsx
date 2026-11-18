@@ -46,6 +46,7 @@ export default function Layout({
   children,
   footer,
   topBar,
+  actions,
   onSearch,
   picker,
   theme,
@@ -61,6 +62,7 @@ export default function Layout({
   children: ReactNode;
   footer?: ReactNode;
   topBar?: ReactNode; // something to show above the page (nothing by default)
+  actions?: ReactNode; // buttons at the top right (Undo and Redo)
   onSearch?: () => void; // open the command centre
   picker?: ReactNode; // the platform drop-down, top left
   theme?: ThemeChoice;
@@ -125,7 +127,7 @@ export default function Layout({
         </div>
         {compact && onSearch && (
           <div className="flex justify-center px-2 pb-2">
-            <button type="button" onClick={onSearch} aria-label="Search and commands" title="Search and commands (Ctrl+K)" className={`${SMALL_BUTTON} h-9 w-9`}>
+            <button type="button" onClick={onSearch} aria-label="Search and commands" title="Search and commands (Ctrl+K)" className={`${SMALL_BUTTON} h-10 w-10 rounded-xl p-2.5`}>
               {icons.search}
             </button>
           </div>
@@ -144,7 +146,7 @@ export default function Layout({
                   {section.title}
                 </h2>
               )}
-              <div className="space-y-0.5">
+              <div className={compact ? "space-y-1" : "space-y-0.5"}>
                 {section.items.map((item) => {
                   const active = activePath === item.path || activePath.startsWith(`${item.path}/`);
                   const hint =
@@ -168,8 +170,8 @@ export default function Layout({
                       aria-current={active ? "page" : undefined}
                       aria-label={compact ? item.label : undefined}
                       title={compact ? item.label : onReorderNav ? "Drag to move" : undefined}
-                      className={`relative flex items-center gap-3 rounded-lg py-2 text-sm font-medium transition active:scale-[0.98] ${
-                        compact ? "justify-center px-2" : "px-3"
+                      className={`relative flex items-center gap-3 text-sm font-medium transition active:scale-[0.98] ${
+                        compact ? "mx-auto h-10 w-10 justify-center rounded-xl" : "rounded-lg px-3 py-2"
                       } ${dragging === item.path ? "opacity-40" : ""} ${
                         active
                           ? "bg-indigo-500/12 text-indigo-700 shadow-[inset_0_0_0_1px_rgb(0_0_0/0.04)] dark:bg-indigo-400/15 dark:text-indigo-200 dark:shadow-[inset_0_0_0_1px_rgb(255_255_255/0.06)]"
@@ -178,7 +180,7 @@ export default function Layout({
                     >
                       {hint === "before" && <span className="absolute inset-x-1 -top-px h-0.5 rounded bg-indigo-500" aria-hidden="true" />}
                       {hint === "after" && <span className="absolute inset-x-1 -bottom-px h-0.5 rounded bg-indigo-500" aria-hidden="true" />}
-                      <span className="h-4 w-4 shrink-0">{item.icon}</span>
+                      <span className={`shrink-0 ${compact ? "h-5 w-5" : "h-4 w-4"}`}>{item.icon}</span>
                       {!compact && <span className="flex-1">{item.label}</span>}
                       {item.badge ? (
                         <span
@@ -247,9 +249,10 @@ export default function Layout({
         </div>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
-        {(desktop || topBar) && (
-          <header className={`${DRAG} flex h-10 shrink-0 items-stretch gap-3 pl-4`} onDoubleClick={onDoubleClick}>
+        {(desktop || topBar || actions) && (
+          <header className={`${DRAG} flex h-10 shrink-0 items-stretch gap-3 pl-4 ${desktop ? "" : "pr-3"}`} onDoubleClick={onDoubleClick}>
             <div className="min-w-0 flex-1 self-center">{topBar}</div>
+            {actions}
             {desktop && <WindowButtons desktop={desktop} />}
           </header>
         )}

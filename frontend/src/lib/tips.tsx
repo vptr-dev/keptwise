@@ -20,8 +20,10 @@ export function Tip({ id, children, tone = "info" }: { id: string; children: Rea
   const { dismissed, dismiss } = useTips();
   if (dismissed.includes(id)) return null;
   return (
-    <Notice tone={tone} onClose={() => dismiss(id)}>
-      {children}
-    </Notice>
+    <div className="kw-tip">
+      <Notice tone={tone} onClose={() => dismiss(id)}>
+        {children}
+      </Notice>
+    </div>
   );
 }

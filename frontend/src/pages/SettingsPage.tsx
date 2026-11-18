@@ -70,7 +70,7 @@ export default function SettingsPage({
         render: () => (
           <Card>
             <h2 className="mb-1 text-lg font-medium">AI</h2>
-            <p className="mb-5 text-sm text-zinc-500 dark:text-zinc-400">
+            <p className="kw-tip mb-5 text-sm text-zinc-500 dark:text-zinc-400">
               The AI writes the notes and steps for each saved video, sorts and tags them, and answers in the AI Assistant.
             </p>
             {overview ? <AiSettings overview={overview} onChange={onAiChange} /> : <Notice>Loading AI settings…</Notice>}
@@ -195,13 +195,13 @@ export default function SettingsPage({
             );
           })}
         </nav>
-        <p className="mt-6 px-3 text-xs text-zinc-400">Everything is saved on this computer, straight away.</p>
+        <p className="kw-tip mt-6 px-3 text-xs text-zinc-400">Everything is saved on this computer, straight away.</p>
       </aside>
 
       <div className="min-w-0 flex-1 space-y-6">
         <header>
           <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">Find a setting by name, or pick a section.</p>
+          <p className="kw-tip text-sm text-zinc-500 dark:text-zinc-400">Find a setting by name, or pick a section.</p>
           <div className="mt-3 max-w-md">
             <SearchBox query={query} onChange={setQuery} />
           </div>

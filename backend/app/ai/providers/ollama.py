@@ -17,6 +17,15 @@ def is_cloud_model(name: str) -> bool:
     return tag == "cloud" or tag.endswith("-cloud")
 
 
+
+CONTEXT = 8192
+
+
+def context_size(messages: list[Message]) -> int:
+    """Tokens Ollama keeps in view: 8192, or 16384 for very long prompts."""
+    chars = sum(len(str(m.get("content", ""))) for m in messages)
+    return CONTEXT if chars / 3 < CONTEXT - 1500 else CONTEXT * 2
+
 class OllamaProvider(Provider):
     info = ProviderInfo(
         id="ollama",
@@ -40,7 +49,10 @@ class OllamaProvider(Provider):
             "model": self.model,
             "messages": messages,
             "stream": False,
-            "options": {"temperature": temperature},
+            # Ollama's default window (4096 tokens) cuts long prompts from the
+            # start, rules first. One fixed bigger size, so the model isn't
+            # reloaded between calls; more only for the rare very long prompt.
+            "options": {"temperature": temperature, "num_ctx": context_size(messages)},
             # Models like gemma4 "think" before answering by default. That makes
             # each answer 2-3x slower and isn't needed for notes and sorting.
             "think": False,

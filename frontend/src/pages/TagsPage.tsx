@@ -4,19 +4,17 @@
 // filter them (yours or the AI's), open one to see its saves, rename it
 // (two tags with the same name become one), colour it, pick several to merge
 // or delete at once, or let the AI tag the saves that have none.
+import ColourPicker, { Swatch } from "../components/ColourPicker";
+import Popover from "../components/Popover";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import { useContextMenu } from "../components/ContextMenu";
 import { useDialog } from "../components/Dialog";
 import EmptyState from "../components/EmptyState";
-import JobCard from "../components/JobCard";
 import { icons } from "../components/icons";
 import { Button, Card, Notice, Segmented, inputClass } from "../components/ui";
-import TagChoices from "../features/organize/TagChoices";
 import { tagMenuItems } from "../features/organize/menus";
 import {
-  COLOR_DOTS,
-  COLORS,
   TAG_LIMIT,
   TAGS_PER_SAVE,
   announceChange,
@@ -25,8 +23,7 @@ import {
   type Tag,
 } from "../features/organize/organizeApi";
 import { sortingApi } from "../features/sorting/sortingApi";
-import { errorCode, errorText } from "../lib/api";
-import { isActive, useJobs, type Job } from "../lib/jobs";
+import { errorText } from "../lib/api";
 import { navigate } from "../lib/router";
 import { Tip } from "../lib/tips";
 
@@ -34,7 +31,6 @@ type Order = "used" | "name" | "newest";
 type Source = "all" | "mine" | "ai" | "unused";
 
 export default function TagsPage() {
-  const jobs = useJobs();
   const [tags, setTags] = useState<Tag[] | null>(null);
   const [limit, setLimit] = useState({ total: 0, limit: TAG_LIMIT });
   const [error, setError] = useState<string | null>(null);
@@ -44,10 +40,7 @@ export default function TagsPage() {
   const [newTag, setNewTag] = useState("");
   const [picked, setPicked] = useState<number[]>([]);
   const [mergeName, setMergeName] = useState("");
-  const [untagged, setUntagged] = useState<number | null>(null);
-  const [withNotes, setWithNotes] = useState(0);
-  const [started, setStarted] = useState<Job | null>(null);
-  const [pending, setPending] = useState<{ text: string; go: () => void } | null>(null);
+  const [suggested, setSuggested] = useState(0);
 
   const load = useCallback(() => {
     organizeApi
@@ -59,19 +52,12 @@ export default function TagsPage() {
       .catch((e) => setError(errorText(e)));
     sortingApi
       .overview()
-      .then((o) => {
-        setUntagged(o.counts.untagged ?? 0);
-        setWithNotes(o.counts.processed ?? 0);
-      })
+      .then((o) => setSuggested(o.counts.tag_suggested ?? 0))
       .catch(() => undefined);
   }, []);
   useEffect(load, [load]);
   useEffect(() => onOrganizeChange(load), [load]);
 
-  const tagJob = jobs.find((j) => j.kind === "tags" && isActive(j)) ?? (started ? jobs.find((j) => j.id === started.id) ?? started : undefined);
-  useEffect(() => {
-    if (tagJob && !isActive(tagJob)) load();
-  }, [tagJob?.status, load]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function act(task: () => Promise<unknown>) {
     setError(null);
@@ -81,17 +67,6 @@ export default function TagsPage() {
       setError(errorText(e));
     }
     announceChange();
-  }
-
-  async function aiTags(which: "untagged" | "with_notes", confirm = false) {
-    setError(null);
-    setPending(null);
-    try {
-      setStarted(await sortingApi.aiTags(which, confirm));
-    } catch (e) {
-      if (errorCode(e) === "confirm_cost") setPending({ text: errorText(e), go: () => void aiTags(which, true) });
-      else setError(errorText(e));
-    }
   }
 
   function create(event: FormEvent) {
@@ -126,7 +101,7 @@ export default function TagsPage() {
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Tags</h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          <p className="kw-tip text-sm text-zinc-500 dark:text-zinc-400">
             The small details on your saves. {total > 0 && `${total.toLocaleString()} tags, ${used.toLocaleString()} in use.`}{" "}
             <span className="tabular-nums" title={`The app allows up to ${limit.limit} tags`}>
               ({limit.total} of {limit.limit} used)
@@ -135,12 +110,15 @@ export default function TagsPage() {
         </div>
       </header>
 
-      <TagChoices
-        untagged={untagged}
-        tagged={withNotes > 0}
-        busy={tagJob !== undefined && isActive(tagJob)}
-        onTags={(which) => void aiTags(which)}
-      />
+      {suggested > 0 && (
+        <Notice>
+          The AI suggests tags for {suggested.toLocaleString()} save{suggested === 1 ? "" : "s"}.{" "}
+          <a href="#/transcripts" className="font-medium underline">
+            Add them on the Sort page
+          </a>
+          .
+        </Notice>
+      )}
 
       <Tip id="tags-intro">
         Tags are for details, like “pasta”, “lisbon” or “leg day”. The app holds up to {limit.limit}, and each save can
@@ -197,16 +175,6 @@ export default function TagsPage() {
         </div>
       </Card>
 
-      {pending && (
-        <Notice tone="warning" onClose={() => setPending(null)}>
-          <p>{pending.text}</p>
-          <div className="mt-2 flex gap-2">
-            <Button size="sm" onClick={pending.go}>Yes, go ahead</Button>
-            <Button size="sm" variant="ghost" onClick={() => setPending(null)}>Cancel</Button>
-          </div>
-        </Notice>
-      )}
-      {tagJob && <JobCard job={tagJob} name="AI tags job" />}
       {error && <Notice tone="error" onClose={() => setError(null)}>{error}</Notice>}
 
       {picked.length > 0 && (
@@ -286,7 +254,7 @@ function TagRow({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(tag.name);
   const [confirming, setConfirming] = useState(false);
-  const [colours, setColours] = useState(false);
+  const [colours, setColours] = useState<HTMLElement | null>(null);
   const [openMenu, menu] = useContextMenu();
   const [ask, dialog] = useDialog();
   const pickItem = { label: picked ? "Unpick" : "Pick (to merge or delete several)", icon: icons.select, onSelect: onPick };
@@ -300,30 +268,25 @@ function TagRow({
       {menu}
       {dialog}
       <input type="checkbox" checked={picked} onChange={onPick} aria-label={`Pick #${tag.name}`} />
-      <div className="relative">
-        <button
-          type="button"
-          aria-label={`Colour of #${tag.name}`}
-          onClick={() => setColours(!colours)}
-          className={`h-3.5 w-3.5 rounded-full ${tag.color ? COLOR_DOTS[tag.color] : "border border-zinc-300 dark:border-zinc-600"}`}
-        />
-        {colours && (
-          <div className="absolute left-0 top-6 z-20 flex gap-1.5 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
-            {COLORS.map((color) => (
-              <button
-                key={color}
-                type="button"
-                aria-label={`Colour ${color}`}
-                className={`h-5 w-5 rounded-full ${COLOR_DOTS[color]}`}
-                onClick={() => {
-                  setColours(false);
-                  act(() => organizeApi.changeTag(tag.id, { color }));
-                }}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      <button
+        type="button"
+        aria-label={`Colour of #${tag.name}`}
+        onClick={(event) => setColours(colours ? null : event.currentTarget)}
+        className="flex h-5 w-5 items-center justify-center rounded-full hover:bg-zinc-900/5 dark:hover:bg-white/10"
+      >
+        <Swatch colour={tag.color === "accent" ? null : tag.color} className="h-3.5 w-3.5" />
+      </button>
+      {colours && (
+        <Popover anchor={colours} onClose={() => setColours(null)} label={`Colour of #${tag.name}`} width={232}>
+          <ColourPicker
+            value={tag.color}
+            onPick={(color) => {
+              setColours(null);
+              act(() => organizeApi.changeTag(tag.id, { color: color ?? "accent" }));
+            }}
+          />
+        </Popover>
+      )}
       {editing ? (
         <form
           className="flex flex-1 gap-2"

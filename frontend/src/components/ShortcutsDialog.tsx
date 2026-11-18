@@ -28,7 +28,6 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
     title: "On a save's page",
     keys: [
       ["1 to 9", "Tick that step"],
-      ["D", "Mark as done"],
       ["O", "Open the video on its platform"],
       ["Esc", "Go back"],
     ],

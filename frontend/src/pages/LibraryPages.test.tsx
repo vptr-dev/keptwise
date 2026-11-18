@@ -64,12 +64,11 @@ test("an empty library points to Import", async () => {
   expect(screen.getByText("Import your saves")).toBeInTheDocument();
 });
 
-test("the item page ticks steps with a click or a number key, and marks it done", async () => {
+test("the item page ticks steps with a click or a number key; no Mark as done or unsave switches", async () => {
   const calls = fakeBackend({
     "GET /api/items/1": { item: libraryItem(), transcript: "Hello and welcome" },
     "PUT /api/items/1/steps/0": libraryItem({ steps_checked: [true, false, false], started_at: "x" }),
     "PUT /api/items/1/steps/1": libraryItem({ steps_checked: [true, true, false], started_at: "x" }),
-    "PATCH /api/items/1": libraryItem({ done: true, steps_checked: [true, true, false] }),
   });
   render(<ItemPage itemId={1} />);
   expect(await screen.findByRole("heading", { name: "Easy tomato pasta" })).toBeInTheDocument();
@@ -84,8 +83,26 @@ test("the item page ticks steps with a click or a number key, and marks it done"
   expect(await screen.findByText("2 of 3 done")).toBeInTheDocument();
 
   fireEvent.keyDown(window, { key: "d" });
-  expect(await screen.findByText("Done (undo)")).toBeInTheDocument();
-  expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({ done: true });
+  expect(calls.some((c) => c.method === "PATCH")).toBe(false);
+  expect(screen.queryByRole("button", { name: /Mark as done/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Safe to unsave/ })).not.toBeInTheDocument();
+});
+
+test("a save the AI hasn't written notes for says Needs notes; one with no sound says so", async () => {
+  fakeBackend({
+    "GET /api/items/7": {
+      item: libraryItem({ id: 7, status: "enriched", title: "a caption", summary: null, steps: [], steps_checked: [], facts: [] }),
+      transcript: "words",
+    },
+    "GET /api/items/8": { item: libraryItem({ id: 8, no_sound: true }), transcript: "" },
+  });
+  const { unmount } = render(<ItemPage itemId={7} />);
+  expect(await screen.findByText("Needs notes.")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "write its notes on the Sort page" })).toHaveAttribute("href", "#/transcripts");
+  unmount();
+  render(<ItemPage itemId={8} />);
+  expect(await screen.findByText("No sound")).toBeInTheDocument();
+  expect(screen.queryByText("Needs notes")).not.toBeInTheDocument();
 });
 
 test("an item without notes says what to do next", async () => {
@@ -279,13 +296,13 @@ test("the library search box and several tags go in the address", async () => {
 
 test("unsave: tick one off and export the CSV", async () => {
   const calls = fakeBackend({
-    "GET /api/unsave": { rule: "processed", left: 2, items: [libraryItem(), libraryItem({ id: 2, title: "Lisbon guide" })] },
+    "GET /api/unsave": { left: 2, items: [libraryItem(), libraryItem({ id: 2, title: "Lisbon guide" })] },
     "PATCH /api/items/2": libraryItem({ id: 2, title: "Lisbon guide", unsaved: true }),
     "POST /api/unsave/export": { path: "C:\\Users\\me\\Downloads\\saves-to-unsave-2026-11-11.csv", count: 2 },
   });
   render(<UnsavePage />);
   expect(await screen.findByText("0 of 2 unsaved")).toBeInTheDocument();
-  expect(screen.getByText(/once the AI has written its notes/)).toBeInTheDocument();
+  expect(screen.getByText(/by itself as soon as its notes are written, or when you delete it/)).toBeInTheDocument();
   expect(screen.getByText(/never logs in to or changes anything on TikTok/)).toBeInTheDocument();
 
   fireEvent.click(screen.getByLabelText("I've unsaved “Lisbon guide”"));
@@ -335,7 +352,8 @@ test("right-click a save: delete it and undo, or find-or-make a collection for i
   expect(within(menu).queryByRole("menuitem", { name: /Mark as done/ })).not.toBeInTheDocument();
   fireEvent.click(within(menu).getByRole("menuitem", { name: /^Delete/ }));
   await vi.waitFor(() => expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({ deleted: true }));
-  expect(await screen.findByText("Deleted. It's in the Archive.")).toBeInTheDocument();
+  expect(await screen.findByText("Deleted: it's in the Archive and on the Unsave list.")).toBeInTheDocument();
+  expect(within(menu).queryByRole("menuitem", { name: /unsaved it|Unsave list|Sort it|Suggest tags/ })).not.toBeInTheDocument();
   expect(window.location.hash).toBe("#/library"); // the save wasn't opened
   fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
   await vi.waitFor(() => expect(calls.filter((c) => c.method === "PATCH")[1]?.body).toEqual({ deleted: false }));

@@ -6,8 +6,10 @@ export type EnrichCounts = {
   total: number;
   waiting: number;
   done: number;
-  failed: number;
-  no_speech: number;
+  failed: number; // couldn't be read (not counting the ones taken down)
+  no_speech: number; // read fine, but the video has no sound or speech
+  gone?: number; // taken down on the platform: in the Archive's Deleted TikToks
+  failed_reasons?: { text: string; count: number }[];
 };
 
 export type SpeechModel = {

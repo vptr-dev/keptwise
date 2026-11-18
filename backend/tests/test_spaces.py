@@ -3,6 +3,7 @@ an update changes the database."""
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -165,10 +166,10 @@ def test_platform_collections_transfer_in_one_go(api: TestClient, svc: AppServic
     assert again["linked"] == 0
 
 
-def test_organising_by_hand_is_a_setting(svc: AppServices) -> None:
-    assert load(svc.settings).auto_sort is True
-    save(svc.settings, SortingSettings(auto_sort=False))
+def test_filing_by_the_ai_is_off_until_switched_on(svc: AppServices) -> None:
     assert load(svc.settings).auto_sort is False
+    save(svc.settings, SortingSettings(auto_sort=True))
+    assert load(svc.settings).auto_sort is True
 
 
 def test_saves_missing_sound_only_because_of_a_403_go_back_in_the_queue(tmp_path: Path) -> None:
@@ -261,3 +262,44 @@ def test_your_own_picture_on_a_collection(api: TestClient, svc: AppServices) -> 
     api.patch(f"/api/collections/{trips}", json={"icon": "plane"})
     assert api.get(f"/api/collections/{trips}/icon").status_code == 404
     assert not (svc.paths.collection_icons / f"{trips}.png").exists()
+
+
+def test_the_simpler_sorting_update_keeps_the_users_data(tmp_path: Path) -> None:
+    """Migration 15: taken-down saves move to the Archive, notes that say
+    "please provide a video" go back to waiting, the "unsorted" tag and
+    Needs review go, and the AI stops filing and tagging by itself."""
+    old = tmp_path / "saves.db"
+    conn = sqlite3.connect(old)
+    for number, script in enumerate(MIGRATIONS[:14], start=1):
+        conn.executescript("BEGIN;" + chr(10) + script + chr(10) + f"PRAGMA user_version = {number}; COMMIT;")
+    add = "INSERT INTO items (platform, url, status, error, needs_review, safe_to_unsave, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    conn.execute(add, ("tiktok", "https://t/gone", "failed", "This video was deleted or isn't available any more.", 0, 0, None))
+    conn.execute(add, ("tiktok", "https://t/private", "failed", "This video is private, so only the person who posted it can see it.", 0, 0, None))
+    conn.execute(add, ("tiktok", "https://t/junk", "processed", None, 1, 1, None))
+    conn.execute(add, ("tiktok", "https://t/good", "processed", None, 0, 1, None))
+    conn.execute(add, ("tiktok", "https://t/binned", "imported", None, 0, 0, "2026-01-01T00:00:00Z"))
+    conn.execute("INSERT INTO ai_results (item_id, title, summary, new_collection) VALUES "
+                 "(3, 'No video provided', 'Please provide a video, transcript, or caption.', 'Car stuff')")
+    conn.execute("INSERT INTO ai_results (item_id, title, summary, new_collection) VALUES (4, 'Carbonara', 'Pasta.', 'Cars')")
+    conn.execute("INSERT INTO collections (name) VALUES ('Food')")
+    conn.execute("INSERT INTO item_collections (item_id, collection_id, source) VALUES (3, 1, 'ai'), (4, 1, 'user')")
+    conn.execute("INSERT INTO tags (name) VALUES ('unsorted'), ('pasta')")
+    conn.execute("INSERT INTO item_tags (item_id, tag_id, source) VALUES (3, 1, 'auto'), (4, 2, 'user'), (3, 2, 'ai')")
+    conn.execute("INSERT INTO settings (key, value_json) VALUES ('sorting', ?)",
+                 ('{"auto_sort": true, "auto_tag": true, "mode": "my_list_plus_ideas", "no_collection_tag": "unsorted", '
+                  '"safe_to_unsave": "done", "max_collections": 3}',))
+    conn.commit()
+    conn.close()
+
+    with Database(old).connect() as conn:
+        items = {row["url"].rsplit("/", 1)[1]: dict(row) for row in conn.execute("SELECT * FROM items")}
+        assert items["gone"]["gone_at"] and not items["private"]["gone_at"]
+        assert (items["junk"]["status"], items["junk"]["safe_to_unsave"], items["junk"]["needs_review"]) == ("enriched", 0, 0)
+        assert items["good"]["status"] == "processed" and items["binned"]["safe_to_unsave"] == 1
+        assert [row[0] for row in conn.execute("SELECT item_id FROM ai_results")] == [4]
+        assert conn.execute("SELECT new_collection FROM ai_results").fetchone()[0] is None
+        assert [tuple(row) for row in conn.execute("SELECT item_id, collection_id, source FROM item_collections")] == [(4, 1, "user")]
+        assert [row[0] for row in conn.execute("SELECT name FROM tags")] == ["pasta"]
+        assert [tuple(row) for row in conn.execute("SELECT item_id, source FROM item_tags")] == [(4, "user")]
+        sorting = json.loads(conn.execute("SELECT value_json FROM settings WHERE key = 'sorting'").fetchone()[0])
+    assert sorting == {"auto_sort": False, "auto_tag": False, "mode": "my_list", "max_collections": 3}

@@ -16,6 +16,7 @@ import { onOrganizeChange } from "./features/organize/organizeApi";
 import { arrangeNav } from "./features/organize/tree";
 import CommandPalette, { type CommandAction } from "./features/command/CommandPalette";
 import UpdateNow from "./features/updates/UpdateNow";
+import UndoButtons, { onUndo } from "./features/undo/UndoButtons";
 import { updatesApi, type UpdateStatus } from "./features/updates/updatesApi";
 import { api } from "./lib/api";
 import { navigate, useRoute } from "./lib/router";
@@ -64,7 +65,7 @@ function buildSections(counts: OverviewCounts | null): { id: string; title: stri
       title: "Manage",
       items: [
         { path: "/import", label: "Import", icon: icons.import },
-        { path: "/transcripts", label: "Transcripts & notes", icon: icons.transcripts },
+        { path: "/transcripts", label: "Sort", icon: icons.transcripts },
         { path: "/settings", label: "Settings", icon: icons.settings },
       ],
     },
@@ -88,6 +89,9 @@ export default function App() {
   const [counts, setCounts] = useState<OverviewCounts | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showCommands, setShowCommands] = useState(false);
+  // Bumped after Undo or Redo, so the page on screen loads its data again.
+  const [dataVersion, setDataVersion] = useState(0);
+  useEffect(() => onUndo(() => setDataVersion((v) => v + 1)), []);
   const [updates, setUpdates] = useState<UpdateStatus | null>(null);
 
   // Live status: is the backend there? (every 15 s, and when the window comes back into view)
@@ -243,19 +247,19 @@ export default function App() {
       })),
       { id: "new-plan", label: "Make a plan", icon: icons.plans, words: "new create todo list", run: go("/plans") },
       { id: "import", label: "Import saves", icon: icons.import, words: "add bring in export file tiktok instagram youtube", run: go("/import") },
-      { id: "transcripts", label: "Get transcripts and write notes", icon: icons.transcripts, words: "transcribe ai notes", run: go("/transcripts") },
+      { id: "transcripts", label: "Sort: transcripts, AI notes and suggestions", icon: icons.transcripts, words: "transcribe ai notes sort approve unsorted", run: go("/transcripts") },
       { id: "ask", label: "Ask the AI Assistant", icon: icons.sparkle, words: "chat question", run: go("/chat") },
       { id: "organise", label: "Organise collections", icon: icons.folder, words: "sort file folders spaces", run: go("/collections") },
       { id: "review", label: "Saves that need review", icon: icons.review, words: "check ai unsure", run: go("/collections/review") },
-      { id: "no-collection", label: "Saves in no collection", icon: icons.library, words: "unsorted loose", run: go("/library?collection_id=none") },
-      { id: "not-transcribed", label: "Saves not transcribed yet", icon: icons.library, words: "waiting", run: go("/library?status=waiting") },
+      { id: "no-collection", label: "Saves in no collection", icon: icons.folderMinus, words: "unsorted loose", run: go("/library?collection_id=none") },
+      { id: "not-transcribed", label: "Saves not transcribed yet", icon: icons.clock, words: "waiting", run: go("/library?status=waiting") },
       { id: "theme-light", label: "Light theme", icon: icons.sun, words: "appearance mode bright", run: () => setTheme("light") },
       { id: "theme-dark", label: "Dark theme", icon: icons.moon, words: "appearance mode night", run: () => setTheme("dark") },
       { id: "theme-system", label: "Theme: same as Windows", icon: icons.monitor, words: "appearance mode system auto", run: () => setTheme("system") },
       {
         id: "sidebar",
         label: look.compact_sidebar ? "Wide sidebar" : "Slim sidebar",
-        icon: icons.grid,
+        icon: icons.sidebar,
         words: "compact icons only",
         run: () => changeLook({ compact_sidebar: !look.compact_sidebar }),
       },
@@ -280,7 +284,7 @@ export default function App() {
   else if (page === "unsave") content = <UnsavePage />;
   else if (page === "archive") content = <ArchivePage tab={route.parts[1] ?? null} cardSize={look.card_size} />;
   else if (page === "import") content = <ImportPage />;
-  else if (page === "transcripts") content = <TranscriptsPage />;
+  else if (page === "transcripts" || page === "sort") content = <TranscriptsPage />;
   else if (page === "collections") content = <CollectionsPage selection={route.parts[1] ?? null} />;
   else if (page === "tags") content = <TagsPage />;
   else if (page === "search") content = <SearchPage />;
@@ -326,9 +330,10 @@ export default function App() {
         onReorderNav={(paths) => changeLook({ nav_order: paths })}
         onStatusClick={() => navigate("/settings?section=ai")}
         footer={updates && !look.compact_sidebar ? <UpdateNow status={updates} place="sidebar" /> : undefined}
+        actions={<UndoButtons />}
       >
         {/* key: each page starts at the top, with fresh state, and reloads when the platform changes */}
-        <div key={`${page === "item" || page === "plans" ? route.path : page}|${scope.platform ?? "all"}`} className={`kw-page ${page === "collections" || page === "chat" ? "h-full" : ""}`}>
+        <div key={`${page === "item" || page === "plans" ? route.path : page}|${scope.platform ?? "all"}|${dataVersion}`} className={`kw-page ${page === "collections" || page === "chat" ? "h-full" : ""}`}>
           {content}
         </div>
       </Layout>

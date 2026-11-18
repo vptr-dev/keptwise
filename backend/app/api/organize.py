@@ -9,16 +9,15 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.ai.sorting import collections, tags
-from app.ai.sorting.settings import load as load_sorting
 from app.api.library import remove_files
-from app.api.sorting import after_links_change, cards_by_id, one_card, require_collection
+from app.api.sorting import cards_by_id, one_card, require_collection
 from app.library import plans, progress, scope
 from app.services import AppServices, services
 
 router = APIRouter(prefix="/api")
 
 MAX_BULK = 2000
-TAG_COLORS = ("violet", "indigo", "blue", "teal", "emerald", "amber", "rose", "zinc")
+TAG_COLORS = ("accent", "violet", "indigo", "blue", "teal", "emerald", "amber", "rose", "zinc")
 
 
 # ---------- tags ----------
@@ -146,7 +145,6 @@ class BulkBody(BaseModel):
 @router.post("/items/bulk")
 def bulk(body: BulkBody, svc: AppServices = Depends(services)) -> dict[str, Any]:
     """Do the same thing to every selected save. Returns the changed cards."""
-    rule = load_sorting(svc.settings).safe_to_unsave
     ids = list(dict.fromkeys(body.item_ids))
     with svc.db.connect() as conn:
         marks = ",".join("?" for _ in ids)
@@ -194,7 +192,7 @@ def bulk(body: BulkBody, svc: AppServices = Depends(services)) -> dict[str, Any]
             elif body.action == "remove_tag" and tag_row is not None:
                 tags.remove(conn, item_id, int(tag_row["id"]))
             elif body.action in ("done", "not_done"):
-                progress.set_done(conn, item_id, body.action == "done", rule)
+                progress.set_done(conn, item_id, body.action == "done")
             elif body.action in ("safe", "not_safe"):
                 progress.set_safe(conn, item_id, body.action == "safe")
             elif body.action in ("unsaved", "still_saved"):
@@ -205,8 +203,6 @@ def bulk(body: BulkBody, svc: AppServices = Depends(services)) -> dict[str, Any]
                 # Only saves that are already in the Archive can go for good.
                 if conn.execute("SELECT deleted_at FROM items WHERE id = ?", (item_id,)).fetchone()["deleted_at"]:
                     purged[item_id] = progress.purge(conn, item_id)
-            if body.action in ("add_to", "move_to", "remove_from"):
-                after_links_change(conn, svc, item_id)
         if body.action == "remove_tag":
             tags.drop_unused(conn)
         cards = cards_by_id(conn, [item_id for item_id in ids if item_id not in purged])

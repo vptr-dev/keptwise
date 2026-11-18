@@ -111,7 +111,7 @@ export default function StorageSettings() {
         <h2 className="text-lg font-medium">Storage</h2>
         {list && <span className="text-sm tabular-nums text-zinc-500 dark:text-zinc-400">{formatBytes(total)} in total</span>}
       </div>
-      <p className="mb-4 text-sm text-zinc-500 dark:text-zinc-400">
+      <p className="kw-tip mb-4 text-sm text-zinc-500 dark:text-zinc-400">
         What Keptwise keeps on this PC. Delete models you don't need to free space; your saves and notes are never
         touched, and anything that needs a deleted model offers to download it again.
       </p>
@@ -198,7 +198,7 @@ function ClearMyData({ list, onCleared, onError }: { list: StorageList; onCleare
   return (
     <section className="mt-6 border-t border-zinc-100 pt-5 dark:border-zinc-800" aria-label="Clear my data">
       <h3 className="text-sm font-semibold">Clear my data</h3>
-      <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+      <p className="kw-tip mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
         You have {saves.toLocaleString()} save{saves === 1 ? "" : "s"} and {backups} backup{backups === 1 ? "" : "s"}
         {backups > 0 ? ` (${formatBytes(list.backups_bytes)})` : ""}. Clearing deletes for good; nothing is copied first.
       </p>

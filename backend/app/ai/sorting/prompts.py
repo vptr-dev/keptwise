@@ -12,6 +12,7 @@ small local model sometimes overshoots; tidy() trims the answer afterwards.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from typing import Any, Literal
 
@@ -55,7 +56,6 @@ class CollectionPick(BaseModel):
 class SortAnswer(BaseModel):
     # At least one pick: an empty list is the model skipping the question.
     collections: list[CollectionPick] = Field(min_length=1)
-    new_collection: str | None = None
 
 
 class NotesAnswer(BaseModel):
@@ -68,7 +68,6 @@ class NotesAnswer(BaseModel):
     steps: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     collections: list[CollectionPick] = Field(min_length=1)
-    new_collection: str | None = None
 
 
 def _clip(text: str | None, limit: int) -> str:
@@ -151,21 +150,10 @@ def sorting_instructions(settings: SortingSettings, collection_names: Sequence[s
         '"likely" (mostly about this), "maybe" (it could fit, but the video is vague or mostly about something '
         'else) or "guess" (very little to go on). Be strict: use "maybe" or "guess" whenever you are not sure.',
     ]
-    if settings.mode == "ai_decides":
-        lines.append(
-            "You may also make up a new collection (1 to 3 words) when none of the list fits; "
-            "put it in \"collections\" like the others. Set \"new_collection\" to null."
-        )
-    else:
-        lines.append("Only use names from the list, written exactly as shown (without the folder or note).")
-        if settings.mode == "my_list_plus_ideas":
-            lines.append(
-                "If nothing in the list fits well, still give your best guess with a low confidence, and put a "
-                "short name (1 to 3 words) for a new collection that would fit in \"new_collection\". "
-                "Otherwise set \"new_collection\" to null."
-            )
-        else:
-            lines.append("Set \"new_collection\" to null.")
+    lines.append(
+        "Only use names from the list, written exactly as shown (without the folder or note). "
+        "If nothing fits well, still give your best guess, with \"guess\"."
+    )
     return "\n".join(lines)
 
 
@@ -194,7 +182,7 @@ def notes_instructions(settings: SortingSettings, item: dict[str, Any] | None = 
         f"- kind: one of {', '.join(KINDS)}.",
         f"- facts: the key details worth keeping (at most {MAX_FACTS}).",
         f"- steps: practical next steps as short to-do items (at most {MAX_STEPS}); empty if there's nothing to do.",
-        tag_instructions(settings, item, existing_tags) if settings.auto_tag else "- tags: an empty list.",
+        tag_instructions(settings, item, existing_tags) if settings.tags_per_video else "- tags: an empty list.",
         "What facts and steps should contain depends on the kind:",
         kinds,
     ])
@@ -278,3 +266,21 @@ def tidy(answer: NotesAnswer, max_tags: int = MAX_TAGS, allowed_tags: list[str] 
     answer.steps = clean_list(answer.steps, MAX_STEPS)
     answer.tags = clean_tags(answer.tags, max_tags, allowed_tags)
     return answer
+
+
+# Notes that aren't notes: the model answered as if it had been given
+# nothing ("Please provide a video...", "No video provided"). These came
+# from prompts cut short by a too-small context; they're never kept.
+_EMPTY_NOTES = re.compile(
+    r"^\W*(?:please (?:provide|share|upload|send)(?: me)?(?: with)? (?:a |the |an )?"
+    r"(?:video|transcript|caption|image|link|more)|no video(?: content)?(?: was)? provided"
+    r"|no (?:video|transcript|caption)s? "
+    r"(?:was |were )?(?:given|available|provided)|i (?:can't|cannot|can not|am unable to|'m unable to) "
+    r"(?:see|view|watch|access)|i'm sorry|sorry, i|as an ai\b|there is no (?:video|transcript))",
+    re.IGNORECASE,
+)
+
+
+def empty_notes(answer: NotesAnswer) -> bool:
+    """True when the AI wrote about having nothing to go on instead of notes."""
+    return bool(_EMPTY_NOTES.search(answer.title or "") or _EMPTY_NOTES.search(answer.summary or ""))

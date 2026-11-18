@@ -165,12 +165,12 @@ test("the sidebar has two sections, no Home, and the platform picker narrows to 
     "Library", "Collections", "Tags", "Plans", "AI Assistant", "Unsave", "Archive",
   ]);
   const manage = screen.getByRole("navigation", { name: "Manage" });
-  expect(within(manage).getAllByRole("link").map((a) => a.textContent)).toEqual(["Import", "Transcripts & notes", "Settings"]);
+  expect(within(manage).getAllByRole("link").map((a) => a.textContent)).toEqual(["Import", "Sort", "Settings"]);
   expect(screen.queryByText("Home")).not.toBeInTheDocument();
   // The AI's state is checked too, not just its name.
   expect(await screen.findByText("Ollama isn't running.")).toBeInTheDocument();
 
-  fireEvent.click(await screen.findByRole("button", { name: "Platform: All platforms. Change" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Platform: All. Change" }));
   fireEvent.click(within(screen.getByRole("listbox", { name: "Platform" })).getByText("YouTube"));
   await vi.waitFor(() => expect(calls.find((c) => c.method === "PUT" && c.url === "/api/scope")?.body).toEqual({ platform: "youtube" }));
   expect(await screen.findByRole("button", { name: "Platform: YouTube. Change" })).toBeInTheDocument();
@@ -214,7 +214,8 @@ test("the first time, a short setup makes the app yours, and Skip keeps the stan
   fireEvent.change(within(setup).getByPlaceholderText("Your name (optional)"), { target: { value: "Sam" } });
   fireEvent.click(within(setup).getByRole("button", { name: "Make it mine" }));
   expect(await within(setup).findByRole("heading", { name: "How should it look, Sam?" })).toBeInTheDocument();
-  fireEvent.click(within(setup).getByRole("radio", { name: "Teal" }));
+  fireEvent.click(within(setup).getByRole("button", { name: "Accent colour: Default. Change" }));
+  fireEvent.click(screen.getByRole("radio", { name: "Teal" }));
   fireEvent.click(within(setup).getByRole("button", { name: "Skip" }));
   await act(async () => undefined);
   expect(screen.queryByRole("dialog", { name: "Set up Keptwise" })).not.toBeInTheDocument();

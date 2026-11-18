@@ -521,6 +521,79 @@ MIGRATIONS.append(
     """
 )
 
+# 14: undo and redo (app/db/undo.py). A step is one change the user made;
+# its log lines are the SQL that puts the rows back.
+MIGRATIONS.append(
+    """
+    CREATE TABLE undo_steps (
+        id INTEGER PRIMARY KEY,
+        label TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT 'done',     -- done (can be undone) or undone (can be redone)
+        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ','now'))
+    );
+    CREATE TABLE undo_log (
+        id INTEGER PRIMARY KEY,
+        step INTEGER NOT NULL,
+        sql TEXT NOT NULL
+    );
+    CREATE INDEX undo_log_step ON undo_log (step);
+    -- What the AI did, or is waiting to do, for an answer (app/search/agent.py).
+    ALTER TABLE chat_messages ADD COLUMN actions_json TEXT;
+    """
+)
+
+# 15: simpler sorting.
+# - Saves taken down on the platform move to the Archive ("Deleted TikToks")
+#   by themselves: gone_at.
+# - The AI's tags can wait as suggestions (tag_suggestions_json).
+# - Notes where the AI said it was given nothing ("Please provide a video")
+#   came from prompts cut short; they're dropped and the saves wait for
+#   notes again (with the AI's tags and collection picks for them).
+# - No more "unsorted" tag, "Needs review" or new-collection ideas: a save in
+#   no collection is in Unsorted, with the AI's pick as a suggestion.
+# - The AI doesn't file or tag by itself unless switched on (Sort page).
+# - Deleted saves go on the Unsave list.
+MIGRATIONS.append(
+    """
+    ALTER TABLE items ADD COLUMN gone_at TEXT;
+    ALTER TABLE ai_results ADD COLUMN tag_suggestions_json TEXT NOT NULL DEFAULT '[]';
+
+    UPDATE items SET gone_at = coalesce(enriched_at, updated_at)
+    WHERE status = 'failed' AND error = 'This video was deleted or isn''t available any more.';
+    CREATE INDEX items_gone ON items (gone_at) WHERE gone_at IS NOT NULL;
+
+    CREATE TEMP TABLE empty_notes AS
+        SELECT item_id FROM ai_results
+        WHERE lower(title) LIKE 'please provide%video%' OR lower(summary) LIKE 'please provide%video%'
+           OR lower(title) LIKE 'please provide%transcript%' OR lower(summary) LIKE 'please provide%transcript%'
+           OR lower(title) LIKE 'no video%provided%' OR lower(summary) LIKE 'no video%provided%'
+           OR lower(title) LIKE 'no video content%' OR lower(summary) LIKE 'no video content%';
+    DELETE FROM item_collections WHERE source = 'ai' AND item_id IN (SELECT item_id FROM empty_notes);
+    DELETE FROM item_tags WHERE source = 'ai' AND item_id IN (SELECT item_id FROM empty_notes);
+    DELETE FROM ai_results WHERE item_id IN (SELECT item_id FROM empty_notes);
+    UPDATE items SET status = 'enriched', processed_at = NULL, sorted_at = NULL,
+                     safe_to_unsave = CASE WHEN unsaved = 1 OR deleted_at IS NOT NULL THEN safe_to_unsave ELSE 0 END
+    WHERE status = 'processed' AND id IN (SELECT item_id FROM empty_notes);
+    DROP TABLE empty_notes;
+
+    CREATE TEMP TABLE auto_tags AS SELECT DISTINCT tag_id FROM item_tags WHERE source = 'auto';
+    DELETE FROM item_tags WHERE source = 'auto';
+    DELETE FROM tags WHERE id IN (SELECT tag_id FROM auto_tags)
+                       AND NOT EXISTS (SELECT 1 FROM item_tags it WHERE it.tag_id = tags.id);
+    DROP TABLE auto_tags;
+    UPDATE items SET needs_review = 0, review_reason = NULL WHERE needs_review = 1 OR review_reason IS NOT NULL;
+    UPDATE ai_results SET new_collection = NULL WHERE new_collection IS NOT NULL;
+
+    UPDATE settings
+    SET value_json = json_remove(
+            json_set(value_json, '$.auto_sort', json('false'), '$.auto_tag', json('false'), '$.mode', 'my_list'),
+            '$.no_collection_tag', '$.safe_to_unsave')
+    WHERE key = 'sorting' AND json_valid(value_json);
+
+    UPDATE items SET safe_to_unsave = 1 WHERE deleted_at IS NOT NULL;
+    """
+)
+
 
 def schema_version(conn: sqlite3.Connection) -> int:
     return int(conn.execute("PRAGMA user_version").fetchone()[0])

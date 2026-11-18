@@ -1,7 +1,6 @@
-// The AI's choices. Each lives where it's used: how saves are filed into
-// collections on the Collections page, tagging on the Tags page, when notes
-// are written on the Transcripts page. What's left (what the notes contain,
-// and when a save is safe to unsave) is a Settings section.
+// The AI's choices. How it picks collections and tags lives on the Sort page
+// (where everything the AI does happens); what the notes contain is a
+// Settings section.
 import { useEffect, useState, type ReactNode } from "react";
 
 import { Button, Card, Notice, Segmented, inputClass } from "../../components/ui";
@@ -14,15 +13,6 @@ import {
   type SortingSettings as Settings,
   type SortingSettingsResponse,
 } from "./sortingApi";
-
-const MODES: { value: Settings["mode"]; label: string; help: string }[] = [
-  { value: "my_list", label: "Only my collections", help: "The AI only uses your collections. Unclear videos wait in Needs review." },
-  {
-    value: "my_list_plus_ideas",
-    label: "Mine + AI ideas",
-    help: "The AI uses your collections, and when nothing fits it suggests a new one. You approve it in Needs review.",
-  },
-];
 
 // review_below for each choice (the AI's words score clear 0.95, likely 0.75, maybe 0.5, guess 0.25).
 const REVIEW_CHOICES = [
@@ -63,20 +53,19 @@ export function useSortingSettings() {
 }
 
 /**
- * How the AI files saves into collections. Shown on the Collections page
- * (under "Let the AI organise"), not in Settings.
+ * How the AI picks collections: your rules, how many per save, and how sure
+ * it must be to file by itself. On the Sort page, under "Options".
  */
 export function CollectionSortOptions({ collections }: { collections: Collection[] }) {
   const { data, error, saved, save } = useSortingSettings();
   if (!data) return error ? <Notice tone="error">{error}</Notice> : <p className="text-sm text-zinc-500">Loading…</p>;
   const settings = data.settings;
-  const mode = MODES.find((m) => m.value === settings.mode);
   return (
     <div className="space-y-5">
       {error && <Notice tone="error">{error}</Notice>}
-      <Setting label="Where saves can go" help={mode?.help}>
-        <Segmented label="Where saves can go" value={settings.mode} options={MODES} onChange={(value) => save({ mode: value })} />
-      </Setting>
+      <p className="text-sm text-zinc-600 dark:text-zinc-400">
+        The AI only ever picks from your own collections; it never makes new ones.
+      </p>
       <Setting label="Collections per save" help="With more than one, extra collections are only added when the AI is very sure. (You can put a save in up to 10 yourself.)">
         <Segmented
           label="Collections per save"
@@ -90,8 +79,8 @@ export function CollectionSortOptions({ collections }: { collections: Collection
         />
       </Setting>
       <Setting
-        label="File a save by itself when the AI says the fit is"
-        help="The AI rates each fit as clear, likely, maybe or a guess. Anything below your choice waits in Needs review."
+        label="With “Put into collections automatically” on, file a save when the fit is"
+        help="The AI rates each fit as clear, likely, maybe or a guess. Anything below your choice waits in Unsorted with its suggestion."
       >
         <Segmented
           label="File by itself when the fit is"
@@ -123,13 +112,7 @@ export function CollectionSortOptions({ collections }: { collections: Collection
   );
 }
 
-/** A switch for "the AI files new saves by itself", for the Collections page. */
-export function useAutoSort(): [boolean | null, (on: boolean) => void] {
-  const { data, save } = useSortingSettings();
-  return [data ? data.settings.auto_sort !== false : null, (on) => void save({ auto_sort: on })];
-}
-
-/** How the AI tags saves. Shown on the Tags page (under "Let the AI tag"). */
+/** How the AI tags saves. On the Sort page, under "Options". */
 export function TagOptions() {
   const { data, error, saved, save } = useSortingSettings();
   if (!data) return error ? <Notice tone="error">{error}</Notice> : <p className="text-sm text-zinc-500">Loading…</p>;
@@ -143,7 +126,7 @@ export function TagOptions() {
 }
 
 /** One on/off choice of the AI's, as a switch: [is it on (null while loading), change it]. */
-export function useAiSwitch(key: "auto_tag" | "auto_notes" | "look_at_pictures", fallback = true): [boolean | null, (on: boolean) => void] {
+export function useAiSwitch(key: "auto_tag" | "auto_sort" | "auto_notes" | "look_at_pictures", fallback = true): [boolean | null, (on: boolean) => void] {
   const { data, save } = useSortingSettings();
   return [data ? (data.settings[key] ?? fallback) : null, (on) => void save({ [key]: on })];
 }
@@ -167,18 +150,10 @@ export default function SortingSettings() {
         <h2 className="text-lg font-medium">Notes</h2>
         {saved && <span className="text-xs text-emerald-600 dark:text-emerald-400">Saved</span>}
       </div>
-      <p className="mb-5 text-sm text-zinc-500 dark:text-zinc-400">
-        What the AI writes for each save. Sorting is chosen on the{" "}
-        <button type="button" className="underline" onClick={() => navigate("/collections")}>
-          Collections
-        </button>{" "}
-        page, tagging on the{" "}
-        <button type="button" className="underline" onClick={() => navigate("/tags")}>
-          Tags
-        </button>{" "}
-        page, and notes are started on the{" "}
+      <p className="kw-tip mb-5 text-sm text-zinc-500 dark:text-zinc-400">
+        What the AI writes for each save. How it picks collections and tags, and starting it, is on the{" "}
         <button type="button" className="underline" onClick={() => navigate("/transcripts")}>
-          Transcripts
+          Sort
         </button>{" "}
         page.
       </p>
@@ -234,19 +209,6 @@ export default function SortingSettings() {
             ))}
           </div>
         </Setting>
-
-        <Setting label="Safe to unsave on the platform" help="The app never unsaves anything itself; it only gives you a checklist.">
-          <Segmented
-            label="Safe to unsave"
-            value={settings.safe_to_unsave}
-            options={[
-              { value: "processed", label: "Once it has notes" },
-              { value: "done", label: "When I tick it done" },
-              { value: "manual", label: "Only when I say so" },
-            ]}
-            onChange={(value) => save({ safe_to_unsave: value })}
-          />
-        </Setting>
       </div>
     </Card>
   );
@@ -257,7 +219,7 @@ function Setting({ label, help, children }: { label: string; help?: ReactNode; c
     <div className="space-y-1.5">
       <span className="block text-sm font-medium text-zinc-800 dark:text-zinc-200">{label}</span>
       {children}
-      {help && <span className="block text-xs text-zinc-500 dark:text-zinc-400">{help}</span>}
+      {help && <span className="kw-tip block text-xs text-zinc-500 dark:text-zinc-400">{help}</span>}
     </div>
   );
 }
@@ -373,7 +335,6 @@ const TAG_COUNTS = [0, 3, 5, 6, 8, 10];
 
 function TagSettings({ settings, onSave }: { settings: Settings; onSave: (changes: Partial<Settings>) => void }) {
   const [mine, setMine] = useState((settings.my_tags ?? []).join(", "));
-  const [auto, setAuto] = useState(settings.no_collection_tag || "unsorted");
   useEffect(() => setMine((settings.my_tags ?? []).join(", ")), [settings.my_tags]);
 
   const saveMine = () => {
@@ -422,35 +383,6 @@ function TagSettings({ settings, onSave }: { settings: Settings; onSave: (change
             onBlur={saveMine}
           />
         )}
-      </Setting>
-
-      <Setting
-        label="Tag videos that aren't in any collection"
-        help="Videos with notes that sit in no collection get this tag, so you can find them in the Library or the sidebar. It goes away once they're filed."
-      >
-        <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              className="h-4 w-4 accent-indigo-600"
-              checked={settings.no_collection_tag !== ""}
-              onChange={(e) => onSave({ no_collection_tag: e.target.checked ? auto || "unsorted" : "" })}
-            />
-            On, with the tag
-          </label>
-          <input
-            className={`${inputClass} w-40`}
-            aria-label="Tag for videos in no collection"
-            maxLength={40}
-            value={auto}
-            disabled={settings.no_collection_tag === ""}
-            onChange={(e) => setAuto(e.target.value)}
-            onBlur={() => {
-              const tag = auto.trim().replace(/^#/, "").toLowerCase();
-              if (tag && tag !== settings.no_collection_tag) onSave({ no_collection_tag: tag });
-            }}
-          />
-        </div>
       </Setting>
 
     </>

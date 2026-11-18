@@ -29,7 +29,7 @@ TRANSCRIPT_CHARS = 1500
 HISTORY_TURNS = 6
 NOTHING_FOUND = (
     "I couldn't find anything about that in your saves. Try other words, or check that the "
-    "videos have transcripts (Transcripts screen) so there's something to search."
+    "videos have transcripts (Sort page) so there's something to search."
 )
 
 SYSTEM = (

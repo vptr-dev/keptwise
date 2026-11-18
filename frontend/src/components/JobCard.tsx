@@ -24,7 +24,7 @@ export default function JobCard({
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <h2 className="truncate font-medium">{job.title}</h2>
-            <p className="text-sm text-zinc-500 dark:text-zinc-400" data-testid="job-message">
+            <p className="kw-tip text-sm text-zinc-500 dark:text-zinc-400" data-testid="job-message">
               {paused ? "Paused. Press Resume to carry on." : job.message ?? "Waiting to start…"}
             </p>
           </div>

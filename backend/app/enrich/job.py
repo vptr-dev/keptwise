@@ -245,8 +245,10 @@ class Enricher:
                 if reason.is_network:
                     update_item(conn, item_id, error=reason.text)  # stays waiting; try later
                     return "later"
+                # Taken down on the platform: off to the Archive (Deleted TikToks).
                 update_item(conn, item_id, status="failed", error=reason.text,
-                            enriched_at=now_iso(), enrich_seconds=round(prepared.details_s, 2))
+                            enriched_at=now_iso(), enrich_seconds=round(prepared.details_s, 2),
+                            gone_at=now_iso() if reason.kind == "gone" else None)
             self._time(item_id, "failed", prepared, 0.0)
             return "failed"
 
@@ -294,6 +296,7 @@ class Enricher:
             "thumbnail_url": details.thumbnail_url or item.get("thumbnail_url"),
             # The export's author (if any) wins: it's what the user saw.
             "author": item.get("author") or details.author,
+            "gone_at": None,  # it's there after all
         }
         if prepared.thumbnail_name:
             fields["thumbnail_path"] = prepared.thumbnail_name

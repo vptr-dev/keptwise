@@ -5,11 +5,13 @@ Order of trust:
 1. Where the user put it themselves (never changed by the app).
 2. The user's own rules ("anything from @x goes to Recipes").
 3. The user's links from platform collections (TikTok "recipes" -> Food).
-4. The AI's picks that are certain enough (review_below). The AI rates each
-   pick "clear", "likely", "maybe" or "guess" (prompts.FIT_SCORES). Extra
-   collections (when one item may be in several) need a "clear" fit
-   (EXTRA_MIN), because a small model hands out second places too easily.
-If none of these place the item, it waits in "Needs review".
+4. Only when "Put into collections automatically" is on: the AI's picks
+   that are certain enough (review_below). The AI rates each pick "clear",
+   "likely", "maybe" or "guess" (prompts.FIT_SCORES). Extra collections
+   (when one item may be in several) need a "clear" fit (EXTRA_MIN),
+   because a small model hands out second places too easily.
+A save none of these place stays in Unsorted, with the AI's best pick shown
+as a suggestion for the user to accept or change.
 """
 
 from __future__ import annotations
@@ -28,11 +30,9 @@ EXTRA_MIN = 0.85
 @dataclass
 class Decision:
     links: list[Link]
-    needs_review: bool
-    reason: str | None
-    # The AI's best guesses that match collections, best first (for the inbox).
+    # The AI's best guesses that match collections, best first. Shown in
+    # Unsorted when the save isn't in a collection, to accept with a click.
     suggestions: list[dict[str, Any]] = field(default_factory=list)
-    new_collection: str | None = None
 
     @property
     def best_confidence(self) -> float | None:
@@ -96,43 +96,28 @@ def decide(
     settings: SortingSettings,
     known_names: list[str],
     picks: list[CollectionPick],
-    new_collection: str | None,
     rules: list[str],
     platform: list[str],
     has_user_links: bool,
     blocked: list[str] | None = None,
 ) -> Decision:
     """blocked: collections the user switched off for the AI; picks of
-    those are dropped, even as "new" ones."""
+    those are dropped. Picks that aren't one of the user's collections are
+    dropped too: the AI never makes collections."""
     by_lower = {name.lower(): name for name in known_names}
     off = {name.lower() for name in blocked or []}
 
     # The AI's picks, matched to real collections, best first, no repeats.
-    matched: dict[str, tuple[str, float, bool]] = {}
-    idea = clean_name(new_collection or "") or None
+    matched: dict[str, tuple[str, float]] = {}
     for pick in sorted(picks, key=lambda p: p.confidence, reverse=True):
-        name = clean_name(pick.name)
+        known = by_lower.get(clean_name(pick.name).lower())
+        if not known or known.lower() in off:
+            continue
         confidence = min(1.0, max(0.0, float(pick.confidence)))
-        if not name or name.lower() in off:
-            continue
-        known = by_lower.get(name.lower())
-        if known:
-            key, is_new = known.lower(), False
-            name = known
-        elif settings.mode == "ai_decides":
-            key, is_new = name.lower(), True
-        else:
-            idea = idea or name  # a name that isn't in the list is really an idea
-            continue
-        if key not in matched or matched[key][1] < confidence:
-            matched[key] = (name, confidence, is_new)
+        if known.lower() not in matched or matched[known.lower()][1] < confidence:
+            matched[known.lower()] = (known, confidence)
     ranked = sorted(matched.values(), key=lambda m: m[1], reverse=True)
-    suggestions = [{"name": name, "confidence": round(conf, 2)} for name, conf, _ in ranked[:3]]
-
-    if idea and (idea.lower() in by_lower or idea.lower() in off):
-        idea = None  # not new after all
-    if settings.mode != "my_list_plus_ideas":
-        idea = None
+    suggestions = [{"name": name, "confidence": round(conf, 2)} for name, conf in ranked[:3]]
 
     links: list[Link] = []
     taken: set[str] = set()
@@ -144,25 +129,13 @@ def decide(
 
     for name in rules:
         add(Link(name, "rule", 1.0, "mine"))
-    kept_platform = platform  # already mapped to the user's collections
-    for name in kept_platform:
+    for name in platform:  # already mapped to the user's collections
         add(Link(name, "platform", None, "platform"))
-    confident = [m for m in ranked if m[1] >= settings.review_below]
-    if not has_user_links:  # the user already chose; the AI doesn't add more
+    if settings.auto_sort and not has_user_links:  # the user already chose; the AI doesn't add more
+        confident = [m for m in ranked if m[1] >= settings.review_below]
         room = max(0, settings.max_collections - len(rules))
-        for place, (name, conf, is_new) in enumerate(confident[:room]):
+        for place, (name, conf) in enumerate(confident[:room]):
             if place > 0 and conf < max(EXTRA_MIN, settings.review_below):
                 break
-            add(Link(name, "ai", round(conf, 2), "ai" if is_new else "mine"))
-
-    placed = has_user_links or bool(rules) or bool(kept_platform) or bool(confident)
-    reason = None
-    if not placed:
-        best = f" Closest in your list: {ranked[0][0]}." if ranked else ""
-        if idea:
-            reason = f"The AI suggests a new collection: “{idea}”.{best}"
-        elif ranked:
-            reason = f"Not sure where this goes. The AI's best guess is {ranked[0][0]} (“{fit_word(ranked[0][1])}”)."
-        else:
-            reason = "The AI couldn't match it to any of your collections."
-    return Decision(links, not placed, reason, suggestions, idea)
+            add(Link(name, "ai", round(conf, 2), "mine"))
+    return Decision(links, suggestions)

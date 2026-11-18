@@ -122,7 +122,7 @@ export default function SearchPage() {
               <p className="font-medium">Nothing found for “{query}”.</p>
               <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
                 Try other words. Only videos with a transcript, a caption or AI notes can be found; make transcripts on
-                the Transcripts screen.
+                the Sort page.
               </p>
             </Card>
           )}

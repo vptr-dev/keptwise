@@ -86,8 +86,6 @@ def test_a_save_has_at_most_ten_tags(db: Database) -> None:
         with pytest.raises(ValueError, match="up to 10 tags"):
             tags.add(conn, item, "eleven")
         tags.add(conn, item, "tag 3")  # one it already has is fine
-        tags.sync_no_collection(conn, item, "unsorted")  # the app's own tag doesn't count
-        assert "unsorted" in {t["name"] for t in tags.of_item(conn, item)}
 
 
 # ---------- tags ----------
@@ -111,27 +109,13 @@ def test_tags_merge_on_rename_and_keep_the_users_own(db: Database) -> None:
         assert "quick dinner" not in {t["name"] for t in tags.list_all(conn)}
 
 
-def test_saves_in_no_collection_get_the_chosen_tag(db: Database) -> None:
-    lonely, filed, waiting = add(db, 1), add(db, 2), add(db, 3, processed=False)
-    with db.connect() as conn:
-        collections.add_by_user(conn, filed, collections.ensure(conn, "Food"))
-        tags.sync_all_no_collection(conn, "unsorted")
-        tagged = lambda item: [t["name"] for t in tags.of_item(conn, item)]  # noqa: E731
-        assert tagged(lonely) == ["unsorted"] and tagged(filed) == [] and tagged(waiting) == []
-        collections.add_by_user(conn, lonely, collections.ensure(conn, "Food"))
-        tags.sync_no_collection(conn, lonely, "unsorted")
-        assert tagged(lonely) == []
-        tags.sync_all_no_collection(conn, "")  # switched off
-        assert tags.find(conn, "unsorted") is None
-
-
 def test_tag_settings_rules_and_prompts() -> None:
     with pytest.raises(ValueError):
         Rule(field="text", value="Japan")  # needs a collection or a tag
     rule = Rule(field="text", value="Japan", tag="Japan")
     assert rule_tag_hits([rule], {"description": "Ramen in Japan"}, None) == ["japan"]
-    settings = SortingSettings(my_tags=["#Pasta", "pasta", " Gym  Days "], no_collection_tag="#Inbox")
-    assert settings.my_tags == ["pasta", "gym days"] and settings.no_collection_tag == "inbox"
+    settings = SortingSettings(my_tags=["#Pasta", "pasta", " Gym  Days "])
+    assert settings.my_tags == ["pasta", "gym days"]
 
     text = notes_messages({"platform": "tiktok"}, "x", SortingSettings(tags_per_video=12, tag_mode="only_mine",
                                                                       my_tags=["pasta", "gym"]), [])[1]["content"]
@@ -144,8 +128,8 @@ def test_tag_settings_rules_and_prompts() -> None:
     assert "1. tags the user already has (write them exactly): pasta, travel" in text
     assert "2. this video's own hashtags, when they name a real topic: london eats, food" in text  # no #fyp, #viral
     assert "3. these common tags: food, recipe" in text
-    off = notes_messages(video, "x", SortingSettings(auto_tag=False), [])[1]["content"]
-    assert "- tags: an empty list." in off
+    # With "Add tags automatically" off it still asks: they become suggestions.
+    assert "ONE broad, common word" in notes_messages(video, "x", SortingSettings(auto_tag=False), [])[1]["content"]
     assert "- tags: an empty list." in notes_messages({}, None, SortingSettings(tags_per_video=0), [])[1]["content"]
 
     answer = NotesAnswer(title="t", summary="s", kind="recipe", tags=["Pasta", "cats", "gym", "x", "y"],
@@ -195,7 +179,6 @@ def test_tag_and_folder_routes(api: TestClient, svc: AppServices) -> None:
 
 
 def test_bulk_actions_and_new_library_filters(api: TestClient, svc: AppServices) -> None:
-    save(svc.settings, SortingSettings(no_collection_tag="unsorted"))
     first = add(svc, 1, author="@Chef", duration=30, saved_at="2026-01-01")
     second = add(svc, 2, author="gym.guy", duration=90, saved_at="2026-02-01")
     third = add(svc, 3, duration=10, saved_at="2026-03-01")
@@ -231,7 +214,7 @@ def test_bulk_actions_and_new_library_filters(api: TestClient, svc: AppServices)
     assert [c["name"] for c in moved["collections"]] == ["Dinners"]
     removed = api.post("/api/items/bulk", json={"item_ids": [first], "action": "remove_from",
                                                 "collection_id": folder}).json()["items"][0]
-    assert "unsorted" in removed["tags"]  # back in no collection, so it gets the tag
+    assert removed["collections"] == [] and "unsorted" not in removed["tags"]  # Unsorted is a place, not a tag
 
 
 def test_sidebar_settings_are_saved(api: TestClient) -> None:
@@ -268,7 +251,6 @@ def test_the_app_has_at_most_a_hundred_tags(db: Database) -> None:
         tags.add(conn, item, "tag5")  # one that exists is fine
         tags.replace_source(conn, item, ["new one", "tag7"], "ai")  # new words are skipped, not the rest
         assert sorted(t["name"] for t in tags.of_item(conn, item)) == ["tag5", "tag7"]
-        tags.sync_no_collection(conn, item, "unsorted")  # the app's own tag still works
 
 
 def test_bulk_add_tag_says_when_the_tag_list_is_full(api: TestClient, svc: AppServices) -> None:

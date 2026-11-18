@@ -12,7 +12,8 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { icons } from "../components/icons";
 import { Button, Notice, inputClass } from "../components/ui";
 import AnswerText from "../features/assistant/AnswerText";
-import { TOOLS, assistantApi, toolInfo, type Chat, type ChatMessage, type ChatSummary, type Target, type ToolId } from "../features/assistant/assistantApi";
+import { TOOLS, assistantApi, toolInfo, type Chat, type ChatActions,
+  type ChatMessage, type ChatSummary, type Target, type ToolId } from "../features/assistant/assistantApi";
 import { organizeApi, type Tag } from "../features/organize/organizeApi";
 import { plansApi, type PlanSummary } from "../features/plans/plansApi";
 import ItemPanel from "../features/search/ItemPanel";
@@ -23,7 +24,7 @@ import { navigate, useRoute } from "../lib/router";
 import { Tip } from "../lib/tips";
 
 const SETTINGS_CODES = ["missing_key", "missing_model", "model_missing", "unreachable"];
-const EXAMPLES = ["What recipes did I save?", "Which places did I want to visit?", "Any tips for studying?"];
+const EXAMPLES = ["What recipes did I save?", "Which places did I want to visit?", "Put my pasta saves in a new Recipes collection"];
 
 const TOOL_ICONS: Record<ToolId, ReactNode> = {
   ask: icons.chat,
@@ -31,7 +32,7 @@ const TOOL_ICONS: Record<ToolId, ReactNode> = {
   plan: icons.plans,
   shopping: icons.cart,
   compare: icons.scale,
-  takeaways: icons.sparkle,
+  takeaways: icons.bulb,
 };
 
 // What to offer when picked saves were brought into a chat.
@@ -104,6 +105,19 @@ export default function AssistantPage({ chatId }: { chatId: number | null }) {
     },
     [loadChats],
   );
+
+  const confirm = useCallback(async (target: Chat, messageId: number, go: boolean) => {
+    setBusy(true);
+    setError(null);
+    try {
+      setChat(await assistantApi.confirm(target.id, messageId, go));
+      loadChats();
+    } catch (e) {
+      setError({ text: errorText(e), code: errorCode(e) });
+    } finally {
+      setBusy(false);
+    }
+  }, [loadChats]);
 
   const start = useCallback(
     async (tool: ToolId, target: Target | null, firstMessage?: string) => {
@@ -216,7 +230,7 @@ export default function AssistantPage({ chatId }: { chatId: number | null }) {
                 <>
                   <div className="min-w-0 flex-1">
                     <h1 className="truncate font-semibold">{chat.title}</h1>
-                    <p className="truncate text-xs text-zinc-500">
+                    <p className="kw-tip truncate text-xs text-zinc-500">
                       {toolInfo(chat.tool).label} · {chat.tool === "ask" && !chat.target ? "answers from all your saves" : `working on ${chat.target_name}`}
                     </p>
                   </div>
@@ -237,7 +251,14 @@ export default function AssistantPage({ chatId }: { chatId: number | null }) {
                       <p className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-br-md bg-indigo-600 px-4 py-2.5 text-sm text-white">{message.content}</p>
                     </div>
                   ) : (
-                    <Answer key={message.id} message={message} tool={chat.tool} chatTitle={chat.title} onOpen={setOpenId} />
+                    <Answer
+                      key={message.id}
+                      message={message}
+                      tool={chat.tool}
+                      chatTitle={chat.title}
+                      onOpen={setOpenId}
+                      onConfirm={busy ? undefined : (go) => void confirm(chat, message.id, go)}
+                    />
                   ),
                 )}
                 {busy && (
@@ -297,9 +318,10 @@ export default function AssistantPage({ chatId }: { chatId: number | null }) {
                   {icons.sparkle}
                 </span>
                 <div>
-                  <h1 className="text-2xl font-semibold tracking-tight">What do you want to know?</h1>
-                  <p className="mt-1.5 text-sm text-zinc-600 dark:text-zinc-400">
-                    Answers come only from the videos you saved, with the ones it used. Nothing else is looked up.
+                  <h1 className="text-2xl font-semibold tracking-tight">What can I help with?</h1>
+                  <p className="kw-tip mt-1.5 text-sm text-zinc-600 dark:text-zinc-400">
+                    Ask about your saves (answers come only from them), or ask me to do something in the app: file, tag,
+                    rename, make plans, tidy up, undo. I'll check with you before anything big.
                   </p>
                 </div>
                 <form
@@ -489,11 +511,13 @@ function Answer({
   tool,
   chatTitle,
   onOpen,
+  onConfirm,
 }: {
   message: ChatMessage;
   tool: ToolId;
   chatTitle: string;
   onOpen: (id: number) => void;
+  onConfirm?: (go: boolean) => void;
 }) {
   const byNumber = new Map(message.sources.map((s) => [s.number, s.item_id]));
   const [saved, setSaved] = useState<number | null>(null);
@@ -518,6 +542,7 @@ function Answer({
       >
         <AnswerText text={message.content} byNumber={byNumber} onOpen={onOpen} />
       </div>
+      {message.actions && <ActionsDone actions={message.actions} onConfirm={onConfirm} />}
       {message.found && message.sources.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
           {(tool === "plan" || tool === "shopping" || tool === "compare") &&
@@ -547,5 +572,43 @@ function Answer({
         </details>
       )}
     </div>
+  );
+}
+
+/** What the AI did in the app, or the big steps it's waiting to do. */
+function ActionsDone({ actions, onConfirm }: { actions: ChatActions; onConfirm?: (go: boolean) => void }) {
+  if (actions.state === "waiting")
+    return (
+      <div className="kw-glass max-w-[90%] rounded-2xl border p-4 text-sm" role="group" aria-label="Waiting for your OK">
+        <p className="font-medium text-zinc-900 dark:text-zinc-100">This is a big change, so I'll wait for you:</p>
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-zinc-700 dark:text-zinc-300">
+          {actions.pending.map((action, index) => (
+            <li key={index}>{action.why || `${action.method} ${action.path}`}</li>
+          ))}
+        </ul>
+        <div className="mt-3 flex gap-2">
+          <Button size="sm" disabled={!onConfirm} onClick={() => onConfirm?.(true)}>
+            Do it
+          </Button>
+          <Button size="sm" variant="secondary" disabled={!onConfirm} onClick={() => onConfirm?.(false)}>
+            Cancel
+          </Button>
+        </div>
+        <p className="kw-tip mt-2 text-xs text-zinc-500 dark:text-zinc-400">You can undo it afterwards with the arrow at the top right.</p>
+      </div>
+    );
+  if (actions.state === "cancelled") return <p className="text-xs text-zinc-500 dark:text-zinc-400">Cancelled. Nothing was changed.</p>;
+  if (actions.changed.length === 0) return null;
+  return (
+    <details className="max-w-[90%] text-xs text-zinc-500 dark:text-zinc-400">
+      <summary className="cursor-pointer select-none">
+        Changed {actions.changed.length} thing{actions.changed.length === 1 ? "" : "s"} (undo with the arrow at the top right, or ask me)
+      </summary>
+      <ul className="mt-1.5 list-disc space-y-0.5 pl-5">
+        {actions.changed.map((line, index) => (
+          <li key={index}>{line}</li>
+        ))}
+      </ul>
+    </details>
   );
 }

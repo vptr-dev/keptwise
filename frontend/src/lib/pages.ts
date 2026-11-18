@@ -20,7 +20,7 @@ export const PAGE_SECTIONS: { id: string; title: string; pages: { path: string; 
     title: "Manage",
     pages: [
       { path: "/import", label: "Import" },
-      { path: "/transcripts", label: "Transcripts & notes" },
+      { path: "/transcripts", label: "Sort" },
       { path: "/settings", label: "Settings" },
     ],
   },

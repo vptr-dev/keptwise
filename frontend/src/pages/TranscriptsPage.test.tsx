@@ -129,28 +129,32 @@ test("the speech settings save the chosen model", async () => {
   expect(calls.filter((c) => c.method === "PUT")[1].body).toEqual({ device: "cpu" });
 });
 
-// ---------- notes and Needs review, on the same page ----------
+// ---------- notes, approving and clearing: everything the AI does is on this page ----------
 
 const notesOverview = (waiting: number, isCloud = false) => ({
-  counts: { waiting, processed: 3, review: 1, unsorted: 0 },
+  counts: { waiting, processed: 3, unsorted: 1, suggested: 1, tag_suggested: 1, untagged: 0, ai_filed: 4, ai_tagged: 7 },
   ai_label: isCloud ? "Claude · claude-haiku-5-5" : "Ollama · gemma4:12b",
   is_cloud: isCloud,
   cloud_batch_limit: 50,
 });
 const sortSettings = {
-  auto_sort: true, auto_tag: true, auto_notes: false, look_at_pictures: true, mode: "my_list_plus_ideas",
-  platform_collections: "hint", max_collections: 2, rules: [], review_below: 0.6, kind_steps: {}, safe_to_unsave: "processed",
-  ai_folder: "", tags_per_video: 6, tag_mode: "free", my_tags: [], no_collection_tag: "unsorted",
+  auto_sort: false, auto_tag: false, auto_notes: false, look_at_pictures: true, mode: "my_list",
+  platform_collections: "hint", max_collections: 2, rules: [], review_below: 0.6, kind_steps: {},
+  ai_folder: "", tags_per_video: 6, tag_mode: "free", my_tags: [],
 };
 const notesJob = (overrides: Record<string, unknown>) =>
   makeJob({ id: 9, kind: "notes", title: "AI notes for 230 videos", status: "queued", total: 230, ...overrides });
 const unsure = {
   id: 13, platform: "tiktok", platform_name: "TikTok", url: "https://t/13", author: "clips", duration_s: 20, status: "processed",
   has_thumbnail: false, title: "4k 60fps Video Clip", caption: null, summary: "A clip.", kind: "other", kind_label: "Anything else",
-  facts: [], steps: [], tags: [], needs_review: true, collections: [], new_collection: "Video Quality", error: null,
-  review_reason: "The AI suggests a new collection: “Video Quality”. Closest in your list: Music.",
-  suggestions: [{ name: "Music", confidence: 0.25 }],
+  facts: [], steps: [], tags: [], collections: [], error: null,
+  suggestions: [{ name: "Music", confidence: 0.75 }], tag_suggestions: ["video", "editing"],
 };
+const music = {
+  id: 4, name: "Music", origin: "mine", description: null, position: 1, count: 2, parent_id: null, space_id: 1,
+  ai_allowed: true, color: null, collapsed: false, path: "Music", depth: 0, has_children: false,
+};
+const gym = { ...music, id: 5, name: "Gym", path: "Gym", position: 2 };
 const pipeline = (extra: Record<string, unknown> = {}) => ({
   "GET /api/enrich/recent": [],
   "GET /api/enrich": overview(),
@@ -158,8 +162,8 @@ const pipeline = (extra: Record<string, unknown> = {}) => ({
   "GET /api/notes/overview": notesOverview(230),
   "GET /api/sorting/settings": { settings: sortSettings, kinds: [] },
   "PUT /api/sorting/settings": (body: unknown) => ({ settings: body, kinds: [] }),
-  "GET /api/library?view=review": [unsure],
-  "GET /api/collections": { collections: [], spaces: [{ id: 1, name: "My saves", color: null, position: 1, collections: 0 }], counts: {}, limit: 50 },
+  "GET /api/library?view=unsorted": [unsure],
+  "GET /api/collections": { collections: [music, gym], spaces: [{ id: 1, name: "My saves", color: null, position: 1, collections: 2 }], counts: {}, limit: 50 },
   ...extra,
 });
 
@@ -167,7 +171,7 @@ test("notes are written on the same page: next 200, live progress, and by themse
   vi.stubGlobal("EventSource", FakeEventSource);
   const calls = fakeBackend(pipeline({ "POST /api/notes/start": notesJob({}) }));
   render(<TranscriptsPage />);
-  expect(await screen.findByRole("heading", { name: "Transcripts and notes" })).toBeInTheDocument();
+  expect(await screen.findByRole("heading", { name: "Sort" })).toBeInTheDocument();
   expect(await screen.findByTestId("notes-waiting")).toHaveTextContent("230 saves have a transcript and are waiting for notes.");
 
   fireEvent.click(screen.getByRole("button", { name: "Write next 200" }));
@@ -181,6 +185,20 @@ test("notes are written on the same page: next 200, live progress, and by themse
   expect(auto).not.toBeChecked();
   fireEvent.click(auto);
   await waitFor(() => expect((calls.find((c) => c.method === "PUT")?.body as { auto_notes: boolean }).auto_notes).toBe(true));
+});
+
+test("the AI only suggests unless switched on: two checkboxes for collections and tags", async () => {
+  vi.stubGlobal("EventSource", FakeEventSource);
+  const calls = fakeBackend(pipeline());
+  render(<TranscriptsPage />);
+  const collections = await screen.findByRole("switch", { name: /Put into collections automatically/ });
+  const tags = screen.getByRole("switch", { name: /Add tags automatically/ });
+  await waitFor(() => expect(collections).toBeEnabled());
+  expect(collections).not.toBeChecked();
+  expect(tags).not.toBeChecked();
+  expect(screen.getByText(/every save waits in Unsorted with the AI's suggestion/)).toBeInTheDocument();
+  fireEvent.click(collections);
+  await waitFor(() => expect((calls.find((c) => c.method === "PUT")?.body as { auto_sort: boolean }).auto_sort).toBe(true));
 });
 
 test("a cloud AI asks before notes spend money, does 50 at most, and never starts by itself", async () => {
@@ -202,12 +220,37 @@ test("a cloud AI asks before notes spend money, does 50 at most, and never start
   await waitFor(() => expect(calls.filter((c) => c.url === "/api/notes/start")[1]?.body).toEqual({ count: 50, confirm_cost: true }));
 });
 
-test("Needs review is on the same page: it shows why, and approving files the save", async () => {
+test("approve on the same page: accept the AI's pick, choose another, or add its tags", async () => {
   vi.stubGlobal("EventSource", FakeEventSource);
-  const calls = fakeBackend(pipeline({ "POST /api/review/13/accept": { ...unsure, needs_review: false } }));
+  const calls = fakeBackend(pipeline({
+    "POST /api/review/13/accept": { ...unsure, collections: [{ id: 4, name: "Music", origin: "mine", source: "user", confidence: null }] },
+    "POST /api/items/13/tag-suggestions": { ...unsure, tags: ["video"], tag_suggestions: ["editing"] },
+  }));
   render(<TranscriptsPage />);
-  const review = await screen.findByRole("region", { name: "Needs review" });
-  expect(await within(review).findByText(/Closest in your list: Music/)).toBeInTheDocument();
-  fireEvent.click(within(review).getByRole("button", { name: "Put in Music" }));
-  await waitFor(() => expect(calls.find((c) => c.url === "/api/review/13/accept")?.body).toEqual({ new_name: "Music" }));
+  const unsorted = await screen.findByRole("region", { name: "Unsorted" });
+  const row = await within(unsorted).findByTestId("unsorted-13");
+  expect(within(row).getByText("Music")).toBeInTheDocument();
+  expect(within(row).getByText("(likely)")).toBeInTheDocument();
+  fireEvent.click(within(row).getByRole("button", { name: "Accept" }));
+  await waitFor(() => expect(calls.find((c) => c.url === "/api/review/13/accept")?.body).toEqual({}));
+
+  fireEvent.click(within(row).getByRole("button", { name: "Choose another" }));
+  const picker = await screen.findByRole("dialog", { name: /Choose a collection/ });
+  fireEvent.click(within(picker).getByRole("button", { name: /Gym/ }));
+  await waitFor(() => expect(calls.filter((c) => c.url === "/api/review/13/accept")[1]?.body).toEqual({ collection_id: 5 }));
+
+  fireEvent.click(within(row).getByRole("button", { name: "Add #video" }));
+  await waitFor(() =>
+    expect(calls.find((c) => c.url === "/api/items/13/tag-suggestions")?.body).toEqual({ names: ["video"], accept: true }),
+  );
+});
+
+test("clear what the AI did: each asks first, and the user's own work stays", async () => {
+  vi.stubGlobal("EventSource", FakeEventSource);
+  const calls = fakeBackend(pipeline({ "POST /api/sorting/clear": { cleared: 7 } }));
+  render(<TranscriptsPage />);
+  fireEvent.click(await screen.findByRole("button", { name: "Remove its tags (7)" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Clear" }));
+  await waitFor(() => expect(calls.find((c) => c.url === "/api/sorting/clear")?.body).toEqual({ what: "ai_tags" }));
+  expect(screen.getByRole("button", { name: "Undo its placements (4)" })).toBeInTheDocument();
 });

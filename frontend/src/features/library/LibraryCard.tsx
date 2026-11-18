@@ -15,10 +15,10 @@ import { saveMenuItems } from "./saveMenu";
 import Thumb from "./Thumb";
 
 function statusLine(item: LibraryItem): string | null {
+  if (item.gone) return "Taken down";
   if (item.status === "failed") return "Couldn't read this one";
   if (item.status === "imported") return "Not transcribed yet";
-  if (item.status === "enriched") return "Waiting for AI notes";
-  if (item.needs_review) return "Needs review";
+  if (item.status === "enriched") return "Needs notes";
   return item.kind_label;
 }
 
@@ -116,11 +116,6 @@ export default function LibraryCard({
             className="absolute bottom-2 left-2 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500 p-1 text-white shadow"
           >
             {icons.check}
-          </span>
-        )}
-        {(item.unsaved || item.deleted) && (
-          <span className="absolute bottom-2 right-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white">
-            {item.deleted ? "Deleted" : "Unsaved"}
           </span>
         )}
         {actions && !selecting && onChange && <QuickActions item={item} onChange={onChange} visible={hover} />}

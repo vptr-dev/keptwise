@@ -12,8 +12,10 @@ import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Any
 
 from app.db.migrations import MIGRATIONS, migrate, schema_version
+from app.db.undo import recording
 
 BACKUPS_KEPT = 5
 
@@ -21,6 +23,7 @@ BACKUPS_KEPT = 5
 class Database:
     def __init__(self, path: Path) -> None:
         self.path = path
+        self.undo: Any = None  # app.db.undo.UndoHistory, once the app sets it up
         path.parent.mkdir(parents=True, exist_ok=True)
         self.backup_made: Path | None = self._backup_before_update()
         with self.connect() as conn:
@@ -61,6 +64,9 @@ class Database:
         conn.row_factory = sqlite3.Row  # rows work like dicts: row["title"]
         conn.execute("PRAGMA foreign_keys=ON")
         conn.execute("PRAGMA busy_timeout=10000")
+        step = recording.get()
+        if step is not None and self.undo is not None:
+            self.undo.start_recording(conn, step)
         try:
             yield conn
             conn.commit()

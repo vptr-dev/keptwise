@@ -27,6 +27,7 @@ export type Look = {
   dismissed_tips: string[]; // tips the user closed
   card_actions: boolean; // quick buttons on a card when the mouse is over it
   welcomed?: boolean; // the first-run setup is done (false: show it)
+  hide_tips?: boolean; // no tips, blurbs or descriptions (Settings -> Appearance)
   look_version?: number; // kept by the backend
 };
 
@@ -91,6 +92,7 @@ export function applyTheme(choice: ThemeChoice): void {
 export function applyLook(look: Look): void {
   applyTheme(look.theme);
   document.documentElement.dataset.accent = look.accent;
+  document.documentElement.dataset.tips = look.hide_tips ? "off" : "on";
   document.documentElement.dataset.textSize = look.text_size;
   tellDesktop(look.accent);
 }

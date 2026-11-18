@@ -238,7 +238,10 @@ def test_overview_counts_and_speech_settings(api: TestClient, svc: AppServices, 
     ids = add_items(svc, "ok", "music", "private", "ok")
     run(svc, ids[:3])
     data = api.get("/api/enrich").json()
-    assert data["counts"] == {"total": 4, "waiting": 1, "done": 2, "failed": 1, "no_speech": 1}
+    assert data["counts"] == {
+        "total": 4, "waiting": 1, "done": 2, "failed": 1, "no_speech": 1, "gone": 0,
+        "failed_reasons": [{"text": "This video is private, so only the person who posted it can see it.", "count": 1}],
+    }
     speech = data["speech"]
     assert speech["model"] == "small" and speech["device"] == "auto"
     assert [m["id"] for m in speech["models"]] == ["tiny", "base", "small", "medium", "large-v3-turbo"]

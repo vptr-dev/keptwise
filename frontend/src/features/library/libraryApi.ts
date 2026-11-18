@@ -18,7 +18,7 @@ export type LibraryItem = ItemCard & {
   plans?: { id: number; name: string; done: boolean }[]; // the plans it's in
 };
 
-export type StatusFilter = "all" | "processed" | "waiting" | "review" | "failed";
+export type StatusFilter = "all" | "processed" | "waiting" | "failed";
 export type ProgressFilter = "any" | "not_started" | "started" | "done";
 export type SortOrder =
   | "newest"
@@ -100,8 +100,9 @@ export type OverviewCounts = {
 };
 export type Overview = { counts: OverviewCounts; recent: LibraryItem[] };
 
-export type SafeRule = "processed" | "done" | "manual";
-export type UnsaveList = { rule: SafeRule; items: LibraryItem[]; left: number };
+/** Parts of the Archive: none = the Library itself. */
+export type ArchivePart = "none" | "deleted" | "unsaved" | "gone";
+export type UnsaveList = { items: LibraryItem[]; left: number };
 export type ItemPage = { item: LibraryItem; transcript: string | null };
 
 export const PAGE_SIZE = 60;
@@ -122,7 +123,7 @@ export function paramsToQuery(params: URLSearchParams): LibraryQuery {
     return value as T;
   };
   return {
-    status: read("status", ["all", "processed", "waiting", "review", "failed"] as const),
+    status: read("status", ["all", "processed", "waiting", "failed"] as const),
     progress: read("progress", ["any", "not_started", "started", "done"] as const),
     platform: read("platform"),
     kind: read("kind"),
@@ -147,8 +148,9 @@ function backendParams(query: LibraryQuery): URLSearchParams {
 
 export const libraryApi = {
   /** includeSub false: a collection's own saves, not those of the collections inside it. */
-  /** archive: "deleted" lists the saves you deleted, "unsaved" the ones you've unsaved on the platform. */
-  items: (query: LibraryQuery, offset = 0, includeSub = true, archive: "none" | "deleted" | "unsaved" = "none") => {
+  /** archive: "deleted" lists the saves you deleted, "unsaved" the ones you've unsaved on the platform,
+   * "gone" the ones taken down on the platform. */
+  items: (query: LibraryQuery, offset = 0, includeSub = true, archive: ArchivePart = "none") => {
     const params = backendParams(query);
     if (!includeSub) params.set("include_sub", "false");
     if (archive !== "none") params.set("archive", archive);
@@ -164,7 +166,7 @@ export const libraryApi = {
     api.patch<LibraryItem>(`/api/items/${id}`, change),
   /** Delete a save for good (only from the Archive). */
   purge: (id: number) => api.del<{ purged: number }>(`/api/items/${id}`),
-  archiveCounts: () => api.get<{ deleted: number; unsaved: number }>("/api/archive"),
+  archiveCounts: () => api.get<{ deleted: number; unsaved: number; gone: number }>("/api/archive"),
   restart: (id: number) => api.post<LibraryItem>(`/api/items/${id}/restart`),
   unsave: () => api.get<UnsaveList>("/api/unsave"),
   exportCsv: () => api.post<{ path: string; count: number }>("/api/unsave/export"),
@@ -190,8 +192,3 @@ export function stepProgress(item: Pick<LibraryItem, "steps" | "steps_checked">)
   return { done: item.steps_checked.filter(Boolean).length, total: item.steps.length };
 }
 
-export const RULE_LABELS: Record<SafeRule, string> = {
-  processed: "once the AI has written its notes",
-  done: "once you've marked it done",
-  manual: "only when you mark it yourself",
-};

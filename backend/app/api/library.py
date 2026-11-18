@@ -16,7 +16,6 @@ from pydantic import BaseModel, Field, field_validator
 from app.ai.sorting import collections as collections_repo
 from app.ai.sorting import tags as tags_repo
 from app.ai.sorting.settings import KIND_LABELS, KINDS
-from app.ai.sorting.settings import load as load_sorting
 from app.api.sorting import CARD_SQL, cards_from_rows, one_card
 from app.importers import PLATFORM_NAMES
 from app.library import progress, scope, unsave_export
@@ -27,7 +26,7 @@ router = APIRouter(prefix="/api")
 
 MAX_PAGE = 120
 
-Status = Literal["all", "processed", "waiting", "failed", "review"]
+Status = Literal["all", "processed", "waiting", "failed"]
 Progress = Literal["any", "not_started", "started", "done"]
 Sort = Literal[
     "newest", "oldest", "title", "title_desc", "posted_newest", "posted_oldest", "creator",
@@ -39,7 +38,6 @@ STATUS_SQL: dict[str, str] = {
     "processed": "i.status = 'processed'",
     "waiting": "i.status IN ('imported', 'enriched')",
     "failed": "i.status = 'failed'",
-    "review": "i.status = 'processed' AND i.needs_review = 1",
 }
 PROGRESS_SQL: dict[str, str] = {
     "any": "1",
@@ -83,15 +81,21 @@ def library_items(
     creator: str | None = None,
     q: str | None = None,  # words in the title, caption, transcript, notes or tags
     sort: Sort = "newest",
-    # The Archive: "deleted" = saves you deleted, "unsaved" = ones you've unsaved on the platform.
-    archive: Literal["none", "deleted", "unsaved"] = "none",
+    # The Archive: "deleted" = saves you deleted, "unsaved" = ones you've unsaved on the platform,
+    # "gone" = ones taken down on the platform (Deleted TikToks).
+    archive: Literal["none", "deleted", "unsaved", "gone"] = "none",
     offset: int = 0,
     limit: int = 60,
     svc: AppServices = Depends(services),
 ) -> dict[str, Any]:
     where = [STATUS_SQL[status], PROGRESS_SQL[progress_filter]]
     params: list[Any] = []
-    where.append("i.deleted_at IS NOT NULL" if archive == "deleted" else "i.deleted_at IS NULL")
+    if archive == "deleted":
+        where.append("i.deleted_at IS NOT NULL")
+    elif archive == "gone":
+        where.append("i.deleted_at IS NULL AND i.gone_at IS NOT NULL")
+    else:
+        where.append("i.deleted_at IS NULL AND i.gone_at IS NULL")
     if archive == "unsaved":
         where.append("i.unsaved = 1")
     if not platform:
@@ -133,7 +137,8 @@ def library_items(
         total = conn.execute(
             f"SELECT COUNT(*) FROM items i LEFT JOIN ai_results a ON a.item_id = i.id WHERE {clause}", params
         ).fetchone()[0]
-        order = {"deleted": "i.deleted_at DESC, i.id DESC", "unsaved": "i.unsaved_at DESC, i.id DESC"}.get(
+        order = {"deleted": "i.deleted_at DESC, i.id DESC", "unsaved": "i.unsaved_at DESC, i.id DESC",
+                 "gone": "i.gone_at DESC, i.id DESC"}.get(
             archive if sort == "newest" else "", SORT_SQL[sort]
         )
         rows = conn.execute(
@@ -196,15 +201,19 @@ def _overview_counts(conn: sqlite3.Connection, platform: str | None = None) -> d
                   SUM(status IN ('imported', 'enriched')) AS waiting,
                   SUM(status = 'enriched') AS ready_for_notes,
                   SUM(status = 'failed') AS failed,
-                  SUM(status = 'processed' AND needs_review = 1) AS review,
                   SUM(started_at IS NOT NULL AND done = 0) AS in_progress,
                   SUM(done = 1) AS done,
-                  SUM(safe_to_unsave = 1 AND unsaved = 0) AS to_unsave,
                   SUM(unsaved = 1) AS unsaved
            FROM items WHERE {scoped}""",
         params,
     ).fetchone()
     counts = {key: int(row[key] or 0) for key in row.keys()}
+    # The Unsave list also has the saves you deleted.
+    unsave_scope, unsave_params = scope.where(platform, "items", deleted=None)
+    counts["to_unsave"] = int(conn.execute(
+        f"SELECT COUNT(*) FROM items WHERE safe_to_unsave = 1 AND unsaved = 0 AND gone_at IS NULL AND {unsave_scope}",
+        unsave_params,
+    ).fetchone()[0])
     # Plans are the user's own lists: open ones (not finished).
     counts["open_plans"] = int(conn.execute("SELECT COUNT(*) FROM plans WHERE done_at IS NULL").fetchone()[0])
     return counts
@@ -279,11 +288,10 @@ class ItemPatch(BaseModel):
 
 @router.patch("/items/{item_id}")
 def patch_item(item_id: int, body: ItemPatch, svc: AppServices = Depends(services)) -> dict[str, Any]:
-    rule = load_sorting(svc.settings).safe_to_unsave
     with svc.db.connect() as conn:
         one_card(conn, item_id)
         if body.done is not None:
-            progress.set_done(conn, item_id, body.done, rule)
+            progress.set_done(conn, item_id, body.done)
         if body.safe_to_unsave is not None:
             progress.set_safe(conn, item_id, body.safe_to_unsave)
         if body.unsaved is not None:
@@ -324,11 +332,12 @@ def archive_counts(svc: AppServices = Depends(services)) -> dict[str, int]:
     with svc.db.connect() as conn:
         row = conn.execute(
             f"""SELECT SUM(deleted_at IS NOT NULL) AS deleted,
-                       SUM(deleted_at IS NULL AND unsaved = 1) AS unsaved
+                       SUM(deleted_at IS NULL AND gone_at IS NULL AND unsaved = 1) AS unsaved,
+                       SUM(deleted_at IS NULL AND gone_at IS NOT NULL) AS gone
                 FROM items WHERE {platform_sql}""",
             params,
         ).fetchone()
-    return {"deleted": int(row["deleted"] or 0), "unsaved": int(row["unsaved"] or 0)}
+    return {key: int(row[key] or 0) for key in ("deleted", "unsaved", "gone")}
 
 
 @router.post("/items/{item_id}/restart")
@@ -343,9 +352,11 @@ def restart_item(item_id: int, svc: AppServices = Depends(services)) -> dict[str
 
 
 def _unsave_cards(conn: sqlite3.Connection, platform: str | None = None) -> list[dict[str, Any]]:
-    scoped, params = scope.where(platform)
+    """Every save whose notes are in, and every save you deleted. Not the
+    ones taken down: there's nothing left on the platform to unsave."""
+    scoped, params = scope.where(platform, deleted=None)
     rows = conn.execute(
-        f"{CARD_SQL} WHERE i.safe_to_unsave = 1 AND {scoped} ORDER BY i.unsaved, i.platform, i.saved_at DESC, i.id DESC",
+        f"{CARD_SQL} WHERE i.safe_to_unsave = 1 AND i.gone_at IS NULL AND {scoped} ORDER BY i.unsaved, i.platform, i.saved_at DESC, i.id DESC",
         params,
     ).fetchall()
     return cards_from_rows(conn, rows)
@@ -356,7 +367,6 @@ def unsave_list(svc: AppServices = Depends(services)) -> dict[str, Any]:
     with svc.db.connect() as conn:
         cards = _unsave_cards(conn, scope.current(svc.settings))
     return {
-        "rule": load_sorting(svc.settings).safe_to_unsave,
         "items": cards,
         "left": sum(1 for card in cards if not card["unsaved"]),
     }
@@ -453,6 +463,7 @@ class UiSettings(BaseModel):
     card_actions: bool = True
     # The first-run setup (name, look, start page) was finished or skipped.
     welcomed: bool = False
+    hide_tips: bool = False  # long-time users: no tips, blurbs or descriptions
 
     @field_validator("start_page", mode="before")
     @classmethod

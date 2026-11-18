@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-18
+
+Changes to organising and sorting.
+
 ## [1.0.0] - 2026-11-17
 
 First full release. New: one-click updates, so Keptwise updates itself from inside the app.

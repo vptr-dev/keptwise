@@ -228,7 +228,7 @@ export default function PlansPage() {
     <div className="mx-auto max-w-3xl space-y-5 px-8 py-8">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Plans</h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+        <p className="kw-tip text-sm text-zinc-500 dark:text-zinc-400">
           Saves and to-dos to work through, for a day or whenever. Tick them off as you go.
         </p>
       </header>

@@ -22,7 +22,7 @@ MAX_NAME = 80
 MAX_ITEMS = 200
 MAX_TASKS = 200
 MAX_SECTION = 40
-COLORS = ("violet", "indigo", "blue", "teal", "emerald", "amber", "rose", "zinc")
+COLORS = ("accent", "violet", "indigo", "blue", "teal", "emerald", "amber", "rose", "zinc")  # accent: follows the app's accent colour
 
 
 def clean_section(section: str | None) -> str | None:

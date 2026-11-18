@@ -7,12 +7,16 @@ export type ToolId = "ask" | "summary" | "plan" | "shopping" | "compare" | "take
 export type Target = { type: "all" | "collection" | "tag" | "plan" | "items"; id?: number; name?: string; ids?: number[] };
 
 export type ChatSource = { number: number; item_id: number; item: LibraryItem };
+// What the AI did in the app for an answer, or is waiting to do (big steps wait for "Do it").
+export type PendingAction = { method: string; path: string; body?: Record<string, unknown>; why?: string };
+export type ChatActions = { state: "waiting" | "done" | "cancelled"; pending: PendingAction[]; changed: string[] };
 export type ChatMessage = {
   id: number;
   role: "user" | "assistant";
   content: string;
   found: boolean;
   sources: ChatSource[];
+  actions?: ChatActions | null;
   created_at: string;
 };
 export type ChatSummary = {
@@ -35,6 +39,8 @@ export const assistantApi = {
   rename: (id: number, title: string) => api.patch<Chat>(`/api/assistant/chats/${id}`, { title }),
   remove: (id: number) => api.del<{ chats: ChatSummary[] }>(`/api/assistant/chats/${id}`),
   send: (id: number, content: string) => api.post<Chat>(`/api/assistant/chats/${id}/messages`, { content }),
+  confirm: (id: number, messageId: number, go: boolean) =>
+    api.post<Chat>(`/api/assistant/chats/${id}/messages/${messageId}/confirm`, { go }),
 };
 
 export type ToolInfo = {

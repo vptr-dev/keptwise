@@ -32,11 +32,14 @@ def choose(settings: SettingsRepo, platform: str | None) -> None:
 
 def where(platform: str | None, alias: str = "i", deleted: bool | None = False) -> tuple[str, list[Any]]:
     """An SQL condition for the saves a list shows: the chosen platform's
-    (every platform when All), and not the deleted ones (deleted=True: only
-    those, for the Archive; None: either)."""
+    (every platform when All), and not the deleted ones or the ones taken
+    down on the platform (deleted=True: only the deleted, for the Archive;
+    None: any)."""
     parts = []
     if deleted is not None:
         parts.append(f"{alias}.deleted_at IS {'NOT ' if deleted else ''}NULL")
+    if deleted is False:
+        parts.append(f"{alias}.gone_at IS NULL")  # taken down: only in the Archive
     if platform:
         parts.append(f"{alias}.platform = ?")
     return " AND ".join(parts) or "1", [platform] if platform else []

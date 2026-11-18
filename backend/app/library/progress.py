@@ -9,11 +9,9 @@ from __future__ import annotations
 import json
 import sqlite3
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any
 
 from app.db.items_repo import update_item
-
-SafeRule = Literal["processed", "done", "manual"]
 
 
 def now_iso() -> str:
@@ -48,15 +46,13 @@ def tick_step(conn: sqlite3.Connection, item_id: int, index: int, done: bool) ->
             update_item(conn, item_id, started_at=now_iso())
 
 
-def set_done(conn: sqlite3.Connection, item_id: int, done: bool, rule: SafeRule) -> None:
-    """Mark the whole item done (or not). With the "done" rule, done items are safe to unsave."""
+def set_done(conn: sqlite3.Connection, item_id: int, done: bool) -> None:
+    """Mark the whole item done (or not)."""
     fields: dict[str, Any] = {"done": int(done), "done_at": now_iso() if done else None}
     if done:
         row = conn.execute("SELECT started_at FROM items WHERE id = ?", (item_id,)).fetchone()
         if row and not row["started_at"]:
             fields["started_at"] = now_iso()
-    if rule == "done":
-        fields["safe_to_unsave"] = int(done)
     update_item(conn, item_id, **fields)
 
 
@@ -73,8 +69,12 @@ def set_unsaved(conn: sqlite3.Connection, item_id: int, unsaved: bool) -> None:
 def set_deleted(conn: sqlite3.Connection, item_id: int, deleted: bool) -> None:
     """Delete a save (it moves to the Archive and leaves every list) or put
     it back. Nothing about it is lost: notes, tags, collections and plans
-    are all still there when it comes back."""
-    update_item(conn, item_id, deleted_at=now_iso() if deleted else None)
+    are all still there when it comes back. A deleted save goes on the
+    Unsave list: you don't want it, so it can go from the platform too."""
+    if deleted:
+        update_item(conn, item_id, deleted_at=now_iso(), safe_to_unsave=1)
+    else:
+        update_item(conn, item_id, deleted_at=None)
 
 
 def purge(conn: sqlite3.Connection, item_id: int) -> list[str]:

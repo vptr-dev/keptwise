@@ -12,10 +12,72 @@ function Icon({ children }: { children: ReactNode }) {
 export const icons = {
   library: (
     <Icon>
-      <rect x="3" y="3" width="7" height="7" rx="1" />
-      <rect x="14" y="3" width="7" height="7" rx="1" />
-      <rect x="3" y="14" width="7" height="7" rx="1" />
-      <rect x="14" y="14" width="7" height="7" rx="1" />
+      <rect x="3" y="7" width="18" height="14" rx="2" />
+      <path d="M6 3.5h12" />
+      <path d="M10.5 11.2v5.6l4.6-2.8z" />
+    </Icon>
+  ),
+  open: (
+    <Icon>
+      <path d="M4 12h15" />
+      <path d="m13 6 6 6-6 6" />
+    </Icon>
+  ),
+  folderMinus: (
+    <Icon>
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+      <path d="M9 13h6" />
+    </Icon>
+  ),
+  clock: (
+    <Icon>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </Icon>
+  ),
+  bulb: (
+    <Icon>
+      <path d="M9 18h6M10 21h4" />
+      <path d="M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.5 1 2.5h6c0-1 .3-1.8 1-2.5A6 6 0 0 0 12 3z" />
+    </Icon>
+  ),
+  note: (
+    <Icon>
+      <path d="M4 4h16v11l-5 5H4z" />
+      <path d="M15 20v-5h5" />
+      <path d="M8 9h8M8 12.5h4" />
+    </Icon>
+  ),
+  palette: (
+    <Icon>
+      <path d="M12 3a9 9 0 1 0 0 18c1 0 1.5-.8 1.5-1.5 0-.4-.2-.8-.4-1.1-.3-.3-.4-.7-.4-1.1 0-.8.7-1.5 1.5-1.5H16a5 5 0 0 0 5-5c0-4.4-4-7.8-9-7.8z" />
+      <circle cx="7.5" cy="11" r="1" />
+      <circle cx="11" cy="7.5" r="1" />
+      <circle cx="15.5" cy="8.5" r="1" />
+    </Icon>
+  ),
+  sidebar: (
+    <Icon>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M9 4v16" />
+    </Icon>
+  ),
+  bookmarkOff: (
+    <Icon>
+      <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z" />
+      <path d="m9.5 8 5 5M14.5 8l-5 5" />
+    </Icon>
+  ),
+  undo: (
+    <Icon>
+      <path d="M9 14 4 9l5-5" />
+      <path d="M4 9h11a5 5 0 0 1 0 10h-3" />
+    </Icon>
+  ),
+  redo: (
+    <Icon>
+      <path d="m15 14 5-5-5-5" />
+      <path d="M20 9H9a5 5 0 0 0 0 10h3" />
     </Icon>
   ),
   plans: (

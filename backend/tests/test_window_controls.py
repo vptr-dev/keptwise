@@ -76,17 +76,14 @@ def test_page_only_sees_the_button_actions() -> None:
     assert public == {"minimize", "toggle_maximize", "is_maximized", "close", "size", "resize", "set_accent"}
 
 
-def test_the_taskbar_icon_can_take_the_accent_colour(tmp_path: Path) -> None:
+def test_the_taskbar_icon_is_the_plain_white_logo_with_no_tile(tmp_path: Path) -> None:
     from PIL import Image
 
-    from window_icon import tinted_icon
-
     plain = Path(__file__).resolve().parents[2] / "desktop" / "icon.ico"
-    assert tinted_icon(plain, "default", True, tmp_path) == plain  # white front, as drawn
-    assert tinted_icon(plain, "nonsense", True, tmp_path) == plain
-    teal = tinted_icon(plain, "teal", False, tmp_path)
-    assert teal == tmp_path / "icon-teal.ico"
-    with Image.open(teal) as picture:
-        r, g, b, _ = picture.convert("RGBA").getpixel((170, 160))  # on the front bookmark (256 px)
-    assert g > r and b > r  # teal, not grey
+    with Image.open(plain) as picture:
+        big = picture.convert("RGBA")
+        r, g, b, _ = big.getpixel((170, 160))  # on the front bookmark (256 px)
+        corner = big.getpixel((3, 3))
+    assert min(r, g, b) > 230  # white
+    assert corner[3] == 0  # no dark tile behind it
     assert WindowControls().set_accent("teal", True) is False  # no window: nothing to do

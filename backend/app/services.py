@@ -22,6 +22,7 @@ from app.ai.service import AIService
 from app.ai.sorting.job import make_notes_handler, make_sort_handler, make_tags_handler
 from app.ai.sorting.settings import load as load_sorting
 from app.db.connection import Database
+from app.db.undo import UndoHistory
 from app.db.settings_repo import SettingsRepo
 from app.enrich.job import make_enrich_handler
 from app.importers.job import make_import_handler, remove_old_uploads
@@ -93,6 +94,7 @@ def build_services(
 ) -> AppServices:
     paths = AppPaths(data_dir).create()
     db = Database(paths.database)
+    UndoHistory(db)  # db.undo: records what requests change, for Undo and Redo
     settings = SettingsRepo(db)
     hub = EventHub()
     jobs = JobsRepo(db)

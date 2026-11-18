@@ -1,9 +1,12 @@
-// The Archive (#/archive, #/archive/unsaved): saves that left the Library.
+// The Archive (#/archive, #/archive/unsaved, #/archive/gone): saves that
+// left the Library.
 //
 // Deleted: saves you deleted. Put them back, or delete them for good (their
 // notes, transcript and picture go too, and an import never brings them
 // back). Unsaved: saves you've unsaved on the platform; they stay usable in
 // the Library, and this is the list of what you've cleared out over there.
+// Deleted TikToks: videos taken down on the platform. They move here by
+// themselves when the app finds out, and leave the Library and collections.
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 
 import type { MenuItem } from "../components/ContextMenu";
@@ -19,7 +22,7 @@ import { errorText } from "../lib/api";
 import { navigate } from "../lib/router";
 import { Tip } from "../lib/tips";
 
-type Tab = "deleted" | "unsaved";
+type Tab = "deleted" | "unsaved" | "gone";
 
 const GRID: Record<string, string> = {
   small: "grid-cols-[repeat(auto-fill,minmax(130px,1fr))] gap-3",
@@ -28,9 +31,9 @@ const GRID: Record<string, string> = {
 };
 
 export default function ArchivePage({ tab: wanted = null, cardSize = "medium" }: { tab?: string | null; cardSize?: "small" | "medium" | "large" }) {
-  const tab: Tab = wanted === "unsaved" ? "unsaved" : "deleted";
+  const tab: Tab = wanted === "unsaved" || wanted === "gone" ? wanted : "deleted";
   const [page, setPage] = useState<{ total: number; items: LibraryItem[] } | null>(null);
-  const [counts, setCounts] = useState<{ deleted: number; unsaved: number } | null>(null);
+  const [counts, setCounts] = useState<{ deleted: number; unsaved: number; gone: number } | null>(null);
   const [picked, setPicked] = useState<number[]>([]);
   const [error, setError] = useState<string | null>(null);
   const last = useRef<number | null>(null);
@@ -101,13 +104,19 @@ export default function ArchivePage({ tab: wanted = null, cardSize = "medium" }:
   const many = (ids: number[]) => `${ids.length} save${ids.length === 1 ? "" : "s"}`;
   function menuFor(item: LibraryItem): MenuItem[] {
     const ids = picked.length > 1 && picked.includes(item.id) ? picked : [item.id];
-    const open: MenuItem[] = ids.length === 1 ? [{ label: "Open", icon: icons.library, onSelect: () => navigate(`/item/${item.id}`) }, { kind: "divider" }] : [];
+    const open: MenuItem[] = ids.length === 1 ? [{ label: "Open", icon: icons.open, onSelect: () => navigate(`/item/${item.id}`) }, { kind: "divider" }] : [];
     if (tab === "deleted") {
       return [
         ...open,
         { label: ids.length === 1 ? "Put back in the Library" : `Put ${many(ids)} back`, icon: icons.back, onSelect: () => void bulk(ids, "restore", `Put ${many(ids)} back in the Library.`, "delete") },
         { kind: "divider" },
         { label: ids.length === 1 ? "Delete for good…" : `Delete ${many(ids)} for good…`, icon: icons.trash, danger: true, onSelect: () => void purge(ids) },
+      ];
+    }
+    if (tab === "gone") {
+      return [
+        ...open,
+        { label: ids.length === 1 ? "Delete" : `Delete ${many(ids)}`, icon: icons.trash, danger: true, hint: "to Deleted", onSelect: () => void bulk(ids, "delete", `Deleted ${many(ids)}.`, "restore") },
       ];
     }
     return [
@@ -124,13 +133,16 @@ export default function ArchivePage({ tab: wanted = null, cardSize = "medium" }:
   const tabs: { id: Tab; label: string; count: number | undefined; href: string }[] = [
     { id: "deleted", label: "Deleted", count: counts?.deleted, href: "#/archive" },
     { id: "unsaved", label: "Unsaved", count: counts?.unsaved, href: "#/archive/unsaved" },
+    { id: "gone", label: "Deleted TikToks", count: counts?.gone, href: "#/archive/gone" },
   ];
 
   return (
     <div className="mx-auto max-w-6xl space-y-5 px-8 py-8">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Archive</h1>
-        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">Saves you deleted, and the ones you've unsaved on their platform.</p>
+        <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+          Saves you deleted, the ones you've unsaved on their platform, and videos the platform took down.
+        </p>
       </header>
 
       <div role="tablist" aria-label="Archive" className="flex gap-1 border-b border-zinc-200 dark:border-zinc-800">
@@ -157,10 +169,16 @@ export default function ArchivePage({ tab: wanted = null, cardSize = "medium" }:
           Deleted saves wait here. <b>Put back</b> returns one to the Library exactly as it was. <b>Delete for good</b> removes
           it completely, and it won't come back when you import again.
         </Tip>
-      ) : (
+      ) : tab === "unsaved" ? (
         <Tip id="archive-unsaved">
           These are the saves you've unsaved on their platform. They're still in your Library with their notes; this list
           is your record of what you cleared out. Mark one as <b>still saved</b> if that was a mistake.
+        </Tip>
+      ) : (
+        <Tip id="archive-gone">
+          Videos that were deleted or made unavailable on the platform. The app moves them here by itself when it finds
+          out, so they don't clutter your Library or collections. (A video with no sound is different: it stays in your
+          Library.)
         </Tip>
       )}
       {error && <Notice tone="error" onClose={() => setError(null)}>{error}</Notice>}
@@ -177,6 +195,10 @@ export default function ArchivePage({ tab: wanted = null, cardSize = "medium" }:
                 Delete for good…
               </Button>
             </>
+          ) : tab === "gone" ? (
+            <Button size="sm" variant="danger" onClick={() => void bulk(picked, "delete", `Deleted ${many(picked)}.`, "restore")}>
+              Delete
+            </Button>
           ) : (
             <>
               <Button size="sm" onClick={() => void bulk(picked, "still_saved", `Marked ${many(picked)} as still saved.`, "unsaved")}>
@@ -197,15 +219,20 @@ export default function ArchivePage({ tab: wanted = null, cardSize = "medium" }:
       )}
 
       {page && items.length === 0 && (
-        <EmptyState icon={icons.archive} title={tab === "deleted" ? "Nothing deleted" : "Nothing unsaved yet"}>
+        <EmptyState
+          icon={icons.archive}
+          title={tab === "deleted" ? "Nothing deleted" : tab === "gone" ? "No videos taken down" : "Nothing unsaved yet"}
+        >
           {tab === "deleted"
             ? "When you delete a save (right-click it, or pick several and press Delete), it waits here."
-            : "When you unsave a video on its platform and tick it off on the Unsave page, it's listed here."}
+            : tab === "gone"
+              ? "When the app finds a video was deleted on its platform, it moves here by itself."
+              : "When you unsave a video on its platform and tick it off on the Unsave page, it's listed here."}
         </EmptyState>
       )}
       {items.length > 0 && (
         <>
-          <ul className={`grid ${GRID[cardSize]}`} aria-label={tab === "deleted" ? "Deleted saves" : "Unsaved saves"}>
+          <ul className={`grid ${GRID[cardSize]}`} aria-label={tab === "deleted" ? "Deleted saves" : tab === "gone" ? "Deleted TikToks" : "Unsaved saves"}>
             {items.map((item, index) => (
               <li key={item.id} className="kw-pop flex" style={{ "--i": index } as CSSProperties}>
                 <LibraryCard

@@ -7,14 +7,15 @@ import { useId } from "react";
 import { COLLECTION_ICONS } from "./collectionIcons";
 
 const COLOR_TEXT: Record<string, string> = {
-  violet: "text-violet-500",
-  indigo: "text-indigo-500",
-  blue: "text-blue-500",
-  teal: "text-teal-500",
-  emerald: "text-emerald-500",
-  amber: "text-amber-500",
-  rose: "text-rose-500",
-  zinc: "text-zinc-400",
+  accent: "text-indigo-500",
+  violet: "text-[#8b5cf6]",
+  indigo: "text-[#6366f1]",
+  blue: "text-[#3b82f6]",
+  teal: "text-[#14b8a6]",
+  emerald: "text-[#10b981]",
+  amber: "text-[#f59e0b]",
+  rose: "text-[#f43f5e]",
+  zinc: "text-[#a1a1aa]",
 };
 
 export default function FolderIcon({

@@ -27,30 +27,38 @@ body {
 
 /* ---------- scroll bars ---------- */
 
-/* Thin, rounded and see-through, shown only where something really scrolls.
-   The thumb takes the accent colour when the mouse is on it. */
+/* A slim floating pill on an invisible track, kept off the edges, that
+   grows a little and takes the accent colour under the mouse. Shown only
+   where something really scrolls. */
 ::-webkit-scrollbar {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
 }
 ::-webkit-scrollbar-track,
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
+::-webkit-scrollbar-track {
+  margin: 6px 0;
+}
 ::-webkit-scrollbar-thumb {
-  min-height: 40px;
+  min-height: 48px;
   border: 4px solid transparent;
   border-radius: 999px;
-  background-clip: content-box;
-  background-color: rgb(0 0 0 / 0.16);
+  background-clip: padding-box;
+  background-color: rgb(113 113 122 / 0.32);
+  transition: background-color 0.15s;
 }
 html.dark ::-webkit-scrollbar-thumb {
-  background-color: rgb(255 255 255 / 0.16);
+  background-color: rgb(161 161 170 / 0.28);
 }
-::-webkit-scrollbar-thumb:hover,
+::-webkit-scrollbar-thumb:hover {
+  border-width: 3px;
+  background-color: color-mix(in oklab, var(--color-indigo-500) 75%, transparent);
+}
 ::-webkit-scrollbar-thumb:active {
   border-width: 3px;
-  background-color: color-mix(in oklab, var(--color-indigo-500) 70%, transparent);
+  background-color: var(--color-indigo-500);
 }
 ::-webkit-scrollbar-button {
   display: none;
@@ -669,4 +677,9 @@ kbd {
   font-weight: 550;
   letter-spacing: 0.01em;
   font-feature-settings: "tnum", "cv11";
+}
+
+/* Settings -> Appearance -> "Hide tips and descriptions". */
+html[data-tips="off"] .kw-tip {
+  display: none !important;
 }

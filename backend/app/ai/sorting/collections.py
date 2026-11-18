@@ -37,7 +37,7 @@ MAX_DEPTH = 5  # a collection inside a collection inside ... this many levels
 
 class SaveFull(ValueError):
     """The save is already in the most collections allowed."""
-COLORS = ("violet", "indigo", "blue", "teal", "emerald", "amber", "rose", "zinc")
+COLORS = ("accent", "violet", "indigo", "blue", "teal", "emerald", "amber", "rose", "zinc")  # accent: follows the app's accent colour
 
 
 @dataclass(frozen=True)

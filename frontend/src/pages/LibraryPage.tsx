@@ -32,8 +32,7 @@ import { Tip } from "../lib/tips";
 const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: "all", label: "All" },
   { value: "processed", label: "With notes" },
-  { value: "waiting", label: "Waiting" },
-  { value: "review", label: "Needs review" },
+  { value: "waiting", label: "Needs notes" },
   { value: "failed", label: "Couldn't read" },
 ];
 

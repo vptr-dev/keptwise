@@ -73,18 +73,20 @@ export type CollectionChange = {
 };
 
 export const COLORS = ["violet", "indigo", "blue", "teal", "emerald", "amber", "rose", "zinc"] as const;
+// "accent" (or no colour): follows the accent colour.
 export type ColorName = (typeof COLORS)[number];
 
 // A dot of each colour (plain classes so Tailwind keeps them).
 export const COLOR_DOTS: Record<string, string> = {
-  violet: "bg-violet-500",
-  indigo: "bg-indigo-500",
-  blue: "bg-blue-500",
-  teal: "bg-teal-500",
-  emerald: "bg-emerald-500",
-  amber: "bg-amber-500",
-  rose: "bg-rose-500",
-  zinc: "bg-zinc-400",
+  accent: "bg-indigo-500",
+  violet: "bg-[#8b5cf6]",
+  indigo: "bg-[#6366f1]",
+  blue: "bg-[#3b82f6]",
+  teal: "bg-[#14b8a6]",
+  emerald: "bg-[#10b981]",
+  amber: "bg-[#f59e0b]",
+  rose: "bg-[#f43f5e]",
+  zinc: "bg-[#a1a1aa]",
 };
 
 export const organizeApi = {

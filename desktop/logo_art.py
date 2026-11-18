@@ -1,8 +1,8 @@
 """The Keptwise logo, drawn from its shapes: three bookmarks, one behind the other.
 
 The same outline is in frontend/src/components/Logo.tsx (as SVG), so the
-app, the program icon and the taskbar icon all match. The front bookmark
-takes the accent colour; the two behind it stay grey.
+app, the program icon and the taskbar icon all match. The program and
+taskbar icon is the plain logo: white in front, light greys behind, no tile.
 """
 
 from __future__ import annotations
@@ -26,21 +26,9 @@ FRONT: list[tuple[str, list[tuple[float, float]]]] = [
 PLACES = [(35, 19), (148, 100), (261, 181)]
 VIEW = 640
 GAP = 36  # the see-through line between two bookmarks
-BACK, MIDDLE = (63, 63, 70), (139, 141, 145)
+BACK, MIDDLE = (122, 122, 128), (178, 178, 184)
 WHITE = (247, 247, 247)
 TILE = (28, 28, 28)
-
-# The front bookmark in each accent ("default" is white on the dark tile).
-ACCENT_RGB = {
-    "default": WHITE,
-    "violet": (139, 92, 246),
-    "indigo": (99, 102, 241),
-    "blue": (59, 130, 246),
-    "teal": (20, 184, 166),
-    "emerald": (16, 185, 129),
-    "rose": (244, 63, 94),
-    "amber": (245, 158, 11),
-}
 
 
 def _points(place: tuple[float, float], scale: float) -> list[tuple[float, float]]:
@@ -62,7 +50,7 @@ def _points(place: tuple[float, float], scale: float) -> list[tuple[float, float
     return [((x + dx) * scale, (y + dy) * scale) for x, y in out]
 
 
-def draw_logo(size: int, front: tuple[int, int, int] = WHITE, tile: bool = True) -> Image.Image:
+def draw_logo(size: int, front: tuple[int, int, int] = WHITE, tile: bool = False) -> Image.Image:
     """The logo as a size x size picture: on a rounded dark tile (program and
     taskbar icons), or on nothing (tile=False)."""
     big = size * 4  # drawn large, then shrunk, for smooth edges

@@ -104,13 +104,10 @@ def test_plans_hold_one_save_or_many_and_tick_off(api: TestClient, svc: AppServi
     assert api.get("/api/overview").json()["counts"]["open_plans"] == 0
 
 
-def test_the_done_rule_makes_done_items_safe_to_unsave(api: TestClient, svc: AppServices) -> None:
-    save(svc.settings, SortingSettings(safe_to_unsave="done"))
+def test_done_has_nothing_to_do_with_unsaving(api: TestClient, svc: AppServices) -> None:
     item_id = add(svc, 1)
-    with svc.db.connect() as conn:
-        update_item(conn, item_id, safe_to_unsave=0)
     assert api.patch(f"/api/items/{item_id}", json={"done": True}).json()["safe_to_unsave"] is True
-    assert api.patch(f"/api/items/{item_id}", json={"done": False}).json()["safe_to_unsave"] is False
+    assert api.patch(f"/api/items/{item_id}", json={"done": False}).json()["safe_to_unsave"] is True
 
 
 def test_unsave_list_and_marking_unsaved(api: TestClient, svc: AppServices) -> None:
@@ -118,7 +115,7 @@ def test_unsave_list_and_marking_unsaved(api: TestClient, svc: AppServices) -> N
     add(svc, 2)
     add(svc, 3, processed=False)  # not safe yet
     listing = api.get("/api/unsave").json()
-    assert listing["rule"] == "processed" and listing["left"] == 2 and len(listing["items"]) == 2
+    assert listing["left"] == 2 and len(listing["items"]) == 2 and "rule" not in listing
 
     assert api.patch(f"/api/items/{first}", json={"unsaved": True}).json()["unsaved"] is True
     listing = api.get("/api/unsave").json()

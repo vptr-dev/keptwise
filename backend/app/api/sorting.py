@@ -1,10 +1,13 @@
 """Routes for AI notes and sorting: settings, collections, moving items,
-the "Needs review" inbox, and starting the notes / re-sort jobs."""
+Unsorted (saves in no collection, with the AI's suggestion to accept), the
+AI's tag suggestions, clearing what the AI did, and starting the notes /
+re-sort jobs."""
 
 from __future__ import annotations
 
 import base64
 import io
+import json
 import sqlite3
 import time
 from typing import Any, Literal
@@ -42,17 +45,7 @@ def get_settings(svc: AppServices = Depends(services)) -> dict[str, Any]:
 
 @router.put("/sorting/settings")
 def put_settings(body: SortingSettings, svc: AppServices = Depends(services)) -> dict[str, Any]:
-    before = load(svc.settings)
     save(svc.settings, body)
-    if body.no_collection_tag != before.no_collection_tag:
-        with svc.db.connect() as conn:
-            tags.sync_all_no_collection(conn, body.no_collection_tag)
-    if body.safe_to_unsave != before.safe_to_unsave:
-        with svc.db.connect() as conn:
-            if body.safe_to_unsave == "processed":
-                conn.execute("UPDATE items SET safe_to_unsave = 1 WHERE status = 'processed'")
-            elif body.safe_to_unsave == "done":
-                conn.execute("UPDATE items SET safe_to_unsave = done")
     return get_settings(svc)
 
 
@@ -106,9 +99,8 @@ class CollectionsBulk(BaseModel):
     space_id: int | None = None  # ...or to the top of this space
 
 
-def after_links_change(conn: sqlite3.Connection, svc: AppServices, item_id: int) -> None:
-    """Keep the "not in any collection" tag right after a video moves."""
-    tags.sync_no_collection(conn, item_id, load(svc.settings).no_collection_tag)
+UNSORTED_SQL = ("status = 'processed' AND NOT EXISTS "
+                "(SELECT 1 FROM item_collections ic WHERE ic.item_id = items.id)")
 
 
 def _counts(conn: sqlite3.Connection, platform: str | None = None) -> dict[str, int]:
@@ -117,15 +109,22 @@ def _counts(conn: sqlite3.Connection, platform: str | None = None) -> dict[str, 
         f"""SELECT
              SUM(status = 'enriched') AS waiting,
              SUM(status = 'processed') AS processed,
-             SUM(status = 'processed' AND needs_review = 1) AS review,
-             SUM(status = 'processed' AND needs_review = 0 AND NOT EXISTS
-                 (SELECT 1 FROM item_collections ic WHERE ic.item_id = items.id)) AS unsorted,
-             SUM(status IN ('enriched', 'processed') AND NOT EXISTS
-                 (SELECT 1 FROM item_tags it WHERE it.item_id = items.id AND it.source <> 'auto')) AS untagged
+             SUM({UNSORTED_SQL}) AS unsorted,
+             SUM({UNSORTED_SQL} AND EXISTS (SELECT 1 FROM ai_results a WHERE a.item_id = items.id
+                 AND a.suggestions_json NOT IN ('', '[]'))) AS suggested,
+             SUM(status = 'processed' AND EXISTS (SELECT 1 FROM ai_results a WHERE a.item_id = items.id
+                 AND a.tag_suggestions_json NOT IN ('', '[]'))) AS tag_suggested,
+             SUM(status = 'processed' AND NOT EXISTS
+                 (SELECT 1 FROM item_tags it WHERE it.item_id = items.id)) AS untagged,
+             (SELECT COUNT(*) FROM item_collections ic JOIN items i ON i.id = ic.item_id
+              WHERE ic.source = 'ai' AND i.deleted_at IS NULL) AS ai_filed,
+             (SELECT COUNT(*) FROM item_tags it JOIN items i ON i.id = it.item_id
+              WHERE it.source = 'ai' AND i.deleted_at IS NULL) AS ai_tagged
            FROM items WHERE {scoped}""",
         params,
     ).fetchone()
-    return {key: int(row[key] or 0) for key in ("waiting", "processed", "review", "unsorted", "untagged")}
+    keys = ("waiting", "processed", "unsorted", "suggested", "tag_suggested", "untagged", "ai_filed", "ai_tagged")
+    return {key: int(row[key] or 0) for key in keys}
 
 
 @router.get("/collections")
@@ -382,6 +381,8 @@ def card_from_row(
     if extras is None:
         extras = _extras(conn, [int(item["id"])])
     item_tags = extras["tags"].get(int(item["id"]), [])
+    has = {tag["name"] for tag in item_tags}
+    tag_ideas = [name for name in decode_json_list(item.get("tag_suggestions_json")) if name not in has]
     in_plans = extras["plans"].get(int(item["id"]), [])
     return {
         "id": item["id"],
@@ -403,10 +404,10 @@ def card_from_row(
         "steps_checked": [bool(step.get("done")) if isinstance(step, dict) else False for step in steps],
         "tags": [tag["name"] for tag in item_tags],
         "tag_list": item_tags,
-        "needs_review": bool(item["needs_review"]),
-        "review_reason": item["review_reason"],
         "suggestions": decode_json_list(item.get("suggestions_json")),
-        "new_collection": item["new_collection"],
+        "tag_suggestions": tag_ideas,
+        "no_sound": bool(item.get("no_sound")),
+        "gone": bool(item.get("gone_at")),
         "error": item["error"],
         "saved_at": item["saved_at"],
         "platform_collection": item["platform_collection"],
@@ -423,20 +424,20 @@ def card_from_row(
 
 
 CARD_SQL = """SELECT i.*, a.title AS ai_title, a.summary, a.kind, a.facts_json, a.steps_json, a.tags,
-                      a.suggestions_json, a.new_collection
+                      a.suggestions_json, a.tag_suggestions_json,
+                      (SELECT t.text = '' FROM transcripts t WHERE t.item_id = i.id) AS no_sound
                FROM items i LEFT JOIN ai_results a ON a.item_id = i.id"""
 
 
 @router.get("/library")
 def library(
-    view: Literal["collection", "review", "unsorted", "waiting", "all"] = "all",
+    view: Literal["collection", "unsorted", "waiting", "all"] = "all",
     collection_id: int | None = None,
     include_sub: bool = False,  # a folder: also the videos in the collections inside it
     svc: AppServices = Depends(services),
 ) -> list[dict[str, Any]]:
     where = {
-        "review": "i.status = 'processed' AND i.needs_review = 1",
-        "unsorted": "i.status = 'processed' AND i.needs_review = 0 AND NOT EXISTS "
+        "unsorted": "i.status = 'processed' AND NOT EXISTS "
                     "(SELECT 1 FROM item_collections ic WHERE ic.item_id = i.id)",
         "waiting": "i.status = 'enriched'",
         "all": "i.status = 'processed'",
@@ -488,7 +489,6 @@ def move_item(item_id: int, body: MoveBody, svc: AppServices = Depends(services)
             collections.move(conn, item_id, body.from_id, body.to_id)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
-        after_links_change(conn, svc, item_id)
         return one_card(conn, item_id)
 
 
@@ -497,39 +497,105 @@ def remove_from_collection(item_id: int, collection_id: int, svc: AppServices = 
     with svc.db.connect() as conn:
         one_card(conn, item_id)
         collections.remove(conn, item_id, collection_id)
-        after_links_change(conn, svc, item_id)
         return one_card(conn, item_id)
 
 
 class AcceptBody(BaseModel):
-    collection_id: int | None = None  # put it here
-    new_name: str | None = Field(default=None, max_length=80)  # or make this new collection
+    collection_id: int | None = None  # put it here; None = the AI's suggestion
+
+
+def _suggested_id(conn: sqlite3.Connection, card: dict[str, Any]) -> int | None:
+    """The collection the AI suggests for a save, if it still exists."""
+    for pick in card["suggestions"]:
+        row = collections.find(conn, str(pick.get("name") or "")) if isinstance(pick, dict) else None
+        if row is not None:
+            return int(row["id"])
+    return None
 
 
 @router.post("/review/{item_id}/accept")
 def accept(item_id: int, body: AcceptBody, svc: AppServices = Depends(services)) -> dict[str, Any]:
-    """Approve the AI's idea (or the user's own pick) for an item in Needs review."""
+    """Unsorted: put a save in the collection the AI suggests, or the one you pick."""
     with svc.db.connect() as conn:
         card = one_card(conn, item_id)
-        if body.collection_id is not None:
-            require_collection(conn, body.collection_id)
-            target = body.collection_id
-        else:
-            name = body.new_name or card["new_collection"] or (
-                card["suggestions"][0]["name"] if card["suggestions"] else None
-            )
-            if not name:
-                raise HTTPException(status_code=400, detail="Pick a collection for this video.")
-            try:
-                target = collections.ensure(conn, name, "mine")
-            except ValueError as error:
-                raise HTTPException(status_code=400, detail=str(error)) from error
+        target = body.collection_id if body.collection_id is not None else _suggested_id(conn, card)
+        if target is None:
+            raise HTTPException(status_code=400, detail="Pick a collection for this save.")
+        require_collection(conn, target)
         try:
             collections.add_by_user(conn, item_id, target)
         except ValueError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
-        after_links_change(conn, svc, item_id)
         return one_card(conn, item_id)
+
+
+@router.post("/review/accept-all")
+def accept_all(svc: AppServices = Depends(services)) -> dict[str, int]:
+    """Unsorted: accept the AI's suggestion for every save that has one."""
+    scoped, params = scope.where(scope.current(svc.settings))
+    done = 0
+    with svc.db.connect() as conn:
+        rows = conn.execute(
+            f"""{CARD_SQL} WHERE i.status = 'processed' AND {scoped} AND NOT EXISTS
+                (SELECT 1 FROM item_collections ic WHERE ic.item_id = i.id)
+                AND a.suggestions_json NOT IN ('', '[]')""",
+            params,
+        ).fetchall()
+        for card in cards_from_rows(conn, rows):
+            target = _suggested_id(conn, card)
+            if target is not None:
+                collections.add_by_user(conn, int(card["id"]), target)
+                done += 1
+    return {"accepted": done}
+
+
+class TagIdeasBody(BaseModel):
+    names: list[str] = Field(min_length=1, max_length=20)
+    accept: bool = True  # False: no thanks, forget these suggestions
+
+
+@router.post("/items/{item_id}/tag-suggestions")
+def answer_tag_suggestions(item_id: int, body: TagIdeasBody, svc: AppServices = Depends(services)) -> dict[str, Any]:
+    """Accept the AI's suggested tags for a save (they become yours), or turn them down."""
+    wanted = [tags.clean_tag(name) for name in body.names if tags.clean_tag(name)]
+    with svc.db.connect() as conn:
+        one_card(conn, item_id)
+        if body.accept:
+            for name in wanted:
+                try:
+                    tags.add(conn, item_id, name, "user")
+                except (tags.SaveFull, tags.TagsFull) as error:
+                    raise HTTPException(status_code=400, detail=str(error)) from error
+        row = conn.execute("SELECT tag_suggestions_json FROM ai_results WHERE item_id = ?", (item_id,)).fetchone()
+        if row is not None:
+            left = [name for name in decode_json_list(row["tag_suggestions_json"]) if name not in wanted]
+            conn.execute("UPDATE ai_results SET tag_suggestions_json = ? WHERE item_id = ?", (json.dumps(left), item_id))
+        return one_card(conn, item_id)
+
+
+class ClearBody(BaseModel):
+    """suggestions: forget every collection and tag the AI suggested;
+    ai_tags: take off every tag the AI put on; ai_collections: take every
+    save out of the collections the AI put it in (it goes back to Unsorted).
+    Your own tags and placements always stay. Undo brings it all back."""
+
+    what: Literal["suggestions", "ai_tags", "ai_collections"]
+
+
+@router.post("/sorting/clear")
+def clear_ai(body: ClearBody, svc: AppServices = Depends(services)) -> dict[str, int]:
+    with svc.db.connect() as conn:
+        if body.what == "suggestions":
+            changed = conn.execute(
+                "UPDATE ai_results SET suggestions_json = '[]', tag_suggestions_json = '[]' "
+                "WHERE suggestions_json NOT IN ('', '[]') OR tag_suggestions_json NOT IN ('', '[]')"
+            ).rowcount
+        elif body.what == "ai_tags":
+            changed = conn.execute("DELETE FROM item_tags WHERE source = 'ai'").rowcount
+            tags.drop_unused(conn)
+        else:
+            changed = conn.execute("DELETE FROM item_collections WHERE source = 'ai'").rowcount
+    return {"cleared": int(changed)}
 
 
 # ---------- starting the AI jobs ----------
@@ -541,7 +607,7 @@ class StartBody(BaseModel):
 
 
 class ResortBody(BaseModel):
-    which: Literal["all", "review", "unsorted"] = "all"
+    which: Literal["all", "unsorted"] = "unsorted"
     item_ids: list[int] | None = Field(default=None, max_length=2000)  # just these saves
     keep_manual: bool = True
     confirm_cost: bool = False
@@ -596,7 +662,7 @@ def start_notes(body: StartBody, svc: AppServices = Depends(services)) -> dict[s
     if not ids:
         raise HTTPException(
             status_code=400,
-            detail="No videos are waiting for notes. Get their transcripts first (Transcripts screen).",
+            detail="No videos are waiting for notes. Get their transcripts first (Sort page).",
         )
     problem = _ready_or_error(svc, len(ids), body.confirm_cost)
     if problem:
@@ -612,10 +678,9 @@ def _pick_ids(svc: AppServices, which: str, item_ids: list[int] | None) -> list[
     scoped, params = scope.where(scope.current(svc.settings), "items")
     groups = {
         "all": "status = 'processed'",
-        "review": "status = 'processed' AND needs_review = 1",
-        "unsorted": "status = 'processed' AND NOT EXISTS (SELECT 1 FROM item_collections ic WHERE ic.item_id = items.id)",
-        "untagged": "status IN ('enriched', 'processed') AND NOT EXISTS "
-                    "(SELECT 1 FROM item_tags it WHERE it.item_id = items.id AND it.source <> 'auto')",
+        "unsorted": UNSORTED_SQL,
+        # Tags come with the notes; these are saves with notes but no tags.
+        "untagged": "status = 'processed' AND NOT EXISTS (SELECT 1 FROM item_tags it WHERE it.item_id = items.id)",
         "with_notes": "status IN ('enriched', 'processed')",
     }
     with svc.db.connect() as conn:
@@ -663,7 +728,7 @@ def ai_tags(body: TagsBody, svc: AppServices = Depends(services)) -> dict[str, A
     if not ids:
         raise HTTPException(
             status_code=400,
-            detail="Nothing to tag: the AI tags saves once they have a transcript (Transcripts screen).",
+            detail="Nothing to tag: the AI suggests tags for saves once they have notes (Sort page).",
         )
     if svc.ai.is_cloud():
         ids = ids[:CLOUD_BATCH_LIMIT]
@@ -733,10 +798,6 @@ def transfer_platform_collections(body: TransferBody, svc: AppServices = Depends
             made += 0 if existed else 1
             linked += 1
             filed += platform_links.set_link(conn, entry["platform"], entry["name"], target, body.mode)
-        if filed:
-            setting = load(svc.settings).no_collection_tag
-            for row in conn.execute("SELECT id FROM items"):
-                tags.sync_no_collection(conn, int(row["id"]), setting)
     return list_platform_collections(body.space_id, svc) | {
         "made": made, "linked": linked, "filed": filed, "no_room": no_room,
     }
@@ -754,10 +815,6 @@ def link_platform_collection(body: LinkBody, svc: AppServices = Depends(services
             elif target is not None:
                 require_collection(conn, target)
             filed = platform_links.set_link(conn, body.platform, body.name, target, body.mode)
-            if filed:
-                setting = load(svc.settings).no_collection_tag
-                for row in conn.execute("SELECT id FROM items WHERE platform = ?", (body.platform,)):
-                    tags.sync_no_collection(conn, int(row["id"]), setting)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return list_platform_collections(None, svc) | {"filed": filed}
@@ -769,7 +826,6 @@ def apply_platform_collection(body: ApplyBody, svc: AppServices = Depends(servic
     try:
         with svc.db.connect() as conn:
             filed = platform_links.apply(conn, body.platform, body.name)
-            tags.sync_all_no_collection(conn, load(svc.settings).no_collection_tag)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     return list_platform_collections(None, svc) | {"filed": filed}

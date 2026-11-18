@@ -56,7 +56,7 @@ export default function Popover({
       role="dialog"
       aria-label={label}
       style={{ top: place?.top ?? -9999, left: place?.left ?? -9999, width }}
-      className="kw-fade kw-glass-pop fixed z-50 rounded-xl border border-zinc-200 bg-white p-2 text-sm shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
+      className="kw-fade kw-glass-pop fixed z-[90] rounded-xl border border-zinc-200 bg-white p-2 text-sm shadow-xl dark:border-zinc-700 dark:bg-zinc-900"
       onClick={(event) => event.stopPropagation()}
     >
       {children}

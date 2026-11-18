@@ -30,7 +30,7 @@ export default function SpeechSettings() {
   return (
     <Card>
       <h2 className="mb-1 text-lg font-medium">Speech to text</h2>
-      <p className="mb-5 text-sm text-zinc-500 dark:text-zinc-400">
+      <p className="kw-tip mb-5 text-sm text-zinc-500 dark:text-zinc-400">
         Writes down what's said in each video, on this PC. Bigger models make fewer mistakes but take longer. The
         model downloads once, the first time it's needed. A change applies to the next batch.
       </p>
@@ -70,7 +70,7 @@ export default function SpeechSettings() {
               ]}
               onChange={(device) => save({ device })}
             />
-            <span className="block text-xs text-zinc-500 dark:text-zinc-400">
+            <span className="kw-tip block text-xs text-zinc-500 dark:text-zinc-400">
               An NVIDIA graphics card is about 4 times faster (a 3-minute video in about 5 seconds). On other PCs the
               processor is used, which works fine, just slower.
             </span>

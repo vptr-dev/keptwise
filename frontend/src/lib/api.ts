@@ -33,8 +33,17 @@ async function request<T>(method: string, path: string, body?: unknown, signal?:
     }
     throw new ApiError(response.status, message, code);
   }
+  if (method !== "GET") window.dispatchEvent(new Event(CHANGED)); // e.g. the Undo button looks again
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
+}
+
+const CHANGED = "kw-data-changed";
+
+/** Called after every change sent to the backend. */
+export function onDataChange(listener: () => void): () => void {
+  window.addEventListener(CHANGED, listener);
+  return () => window.removeEventListener(CHANGED, listener);
 }
 
 export const api = {

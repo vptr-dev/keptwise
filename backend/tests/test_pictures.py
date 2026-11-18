@@ -129,6 +129,7 @@ def test_pictures_and_tagging_can_be_switched_off(svc: AppServices, ollama: Fake
     assert run_job(svc, "notes", [pasta])["status"] == "done"
     sent = next(r["json"] for r in ollama.requests if r["url"].endswith("/api/chat"))
     assert not any(m.get("images") for m in sent["messages"])
-    assert "- tags: an empty list." in json.dumps(sent)
     with svc.db.connect() as conn:
-        assert [t for t in tags.of_item(conn, pasta) if t["source"] == "ai"] == []  # tagging by hand
+        assert [t for t in tags.of_item(conn, pasta) if t["source"] == "ai"] == []  # only suggested, not put on
+        suggested = conn.execute("SELECT tag_suggestions_json FROM ai_results WHERE item_id = ?", (pasta,)).fetchone()[0]
+        assert json.loads(suggested)

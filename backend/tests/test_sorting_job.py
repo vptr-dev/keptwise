@@ -19,22 +19,23 @@ from tests.test_jobs import wait_for_status
 
 OLLAMA = "http://localhost:11434"
 NAMES = ["Cooking", "Want to go", "Music", "Gym"]
+# The AI files and tags by itself only when the user switches these on.
+AUTO = {"auto_sort": True, "auto_tag": True}
 
 
 def as_fit(score: float) -> str:
     return "clear" if score >= 0.9 else "likely" if score >= 0.7 else "maybe" if score >= 0.45 else "guess"
 
 
-def notes(collections_: list[tuple[str, float]], idea: str | None = None, **extra: Any) -> dict[str, Any]:
+def notes(collections_: list[tuple[str, float]], **extra: Any) -> dict[str, Any]:
     return {
         "title": extra.get("title", "A video"),
-        "summary": "What it's about.",
+        "summary": extra.get("summary", "What it's about."),
         "kind": extra.get("kind", "other"),
         "facts": ["one fact"],
         "steps": ["do this", "then that"],
         "tags": ["Tag", "#tag", "other"],
         "collections": [{"name": name, "fit": as_fit(conf)} for name, conf in collections_],
-        "new_collection": idea,
     }
 
 
@@ -52,12 +53,15 @@ def fake_ai(payload: dict[str, Any] | None) -> dict[str, Any]:
         answer = notes([("Want to go", 0.9), ("Music", 0.3)], kind="travel")
     elif "squat" in word:
         answer = notes([("Gym", 0.97)], kind="workout")
+    elif "blank" in word:  # what a model says when its prompt was cut short
+        answer = notes([("Music", 0.4)], title="No video provided",
+                       summary="Please provide a video, transcript, or caption to generate a summary.")
     else:
-        answer = notes([("Music", 0.4)], idea="Car stuff")
+        answer = notes([("Music", 0.4), ("Car stuff", 0.9)])
     if '{"tags"' in text:  # the AI tags question
         answer = {"tags": ["Fresh", "#fresh", "dinner", "x" * 50]}
     elif "Notes already written" in text:  # the re-sort question has no notes fields
-        answer = {"collections": answer["collections"], "new_collection": answer["new_collection"]}
+        answer = {"collections": answer["collections"]}
     return {"message": {"content": json.dumps(answer)}}
 
 
@@ -99,16 +103,42 @@ def row(svc: AppServices, item_id: int) -> dict[str, Any]:
     return item
 
 
+def test_notes_only_suggest_by_default(svc: AppServices, ollama: FakeNet) -> None:
+    pasta, vague = seed(svc, "pasta", "something")
+    job = run_job(svc, "notes", [pasta, vague])
+    assert job["message"] == "Wrote notes for 2 videos: 2 in Unsorted with a suggestion."
+    first = row(svc, pasta)
+    assert first["status"] == "processed" and first["safe_to_unsave"] == 1  # notes in: safe to unsave
+    assert first["links"] == {}  # not filed: Cooking is only a suggestion
+    assert json.loads(first["ai"]["suggestions_json"]) == [{"name": "Cooking", "confidence": 0.95}]
+    assert json.loads(first["ai"]["tag_suggestions_json"]) == ["tag", "other"]
+    with svc.db.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM item_tags").fetchone()[0] == 0  # no tags put on
+    # A name that isn't one of the user's collections is never suggested.
+    assert json.loads(row(svc, vague)["ai"]["suggestions_json"]) == [{"name": "Music", "confidence": 0.25}]
+
+
+def test_notes_that_say_nothing_are_never_kept(svc: AppServices, ollama: FakeNet) -> None:
+    (blank,) = seed(svc, "blank")
+    job = run_job(svc, "notes", [blank])
+    assert job["message"] == "Wrote notes for 0 videos: 1 failed."
+    item = row(svc, blank)
+    assert item["status"] == "enriched" and item["ai"] is None and item["safe_to_unsave"] == 0
+    assert item["error"].startswith("The AI's notes for this one didn't make sense")
+    assert len([r for r in ollama.requests if r["url"].endswith("/api/chat")]) == 2  # asked once more first
+
+
 def test_notes_are_written_and_videos_sorted(svc: AppServices, ollama: FakeNet) -> None:
+    svc.settings.set("sorting", AUTO)
     pasta, london, vague, broken = seed(svc, "pasta", "london", "something", "broken")
     job = run_job(svc, "notes", [pasta, london, vague, broken])
     assert job["status"] == "done", job
-    assert job["message"] == "Wrote notes for 3 videos: 2 sorted, 1 waiting in Needs review, 1 failed."
+    assert job["message"] == "Wrote notes for 3 videos: 2 sorted, 1 in Unsorted with a suggestion, 1 failed."
     assert job["result"]["ai"] == "Ollama · gemma4:12b"
 
     first = row(svc, pasta)
     assert first["status"] == "processed" and first["processed_at"] and first["safe_to_unsave"] == 1
-    assert first["links"] == {"Cooking": "ai"} and first["needs_review"] == 0
+    assert first["links"] == {"Cooking": "ai"}
     ai = first["ai"]
     assert (ai["title"], ai["kind"], ai["category"], ai["confidence"]) == ("Carbonara", "recipe", "Cooking", 0.95)
     assert json.loads(ai["steps_json"]) == [{"text": "do this", "done": False}, {"text": "then that", "done": False}]
@@ -117,9 +147,8 @@ def test_notes_are_written_and_videos_sorted(svc: AppServices, ollama: FakeNet) 
 
     assert row(svc, london)["links"] == {"Want to go": "ai"}  # Music at 30% isn't added
     unsure = row(svc, vague)
-    assert unsure["needs_review"] == 1 and unsure["links"] == {}
-    assert unsure["review_reason"].startswith("The AI suggests a new collection: “Car stuff”.")
-    assert unsure["ai"]["new_collection"] == "Car stuff"
+    assert unsure["links"] == {} and unsure["needs_review"] == 0
+    assert json.loads(unsure["ai"]["suggestions_json"]) == [{"name": "Music", "confidence": 0.25}]
 
     failed = row(svc, broken)
     assert failed["status"] == "enriched" and failed["error"].startswith("The AI didn't return usable results")
@@ -144,8 +173,8 @@ def test_rules_win_and_the_users_moves_survive_a_resort(svc: AppServices, ollama
     pasta, london = seed(svc, "pasta", "london")
     with svc.db.connect() as conn:
         collections.ensure(conn, "Japan trip")
-    svc.settings.set("sorting", {"rules": [{"field": "text", "value": "london", "collection": "Japan trip"},
-                                           {"field": "text", "value": "london", "collection": "Gone"}]})
+    svc.settings.set("sorting", {**AUTO, "rules": [{"field": "text", "value": "london", "collection": "Japan trip"},
+                                                   {"field": "text", "value": "london", "collection": "Gone"}]})
     run_job(svc, "notes", [pasta, london])
     assert row(svc, london)["links"] == {"Japan trip": "rule", "Want to go": "ai"}
 
@@ -154,7 +183,7 @@ def test_rules_win_and_the_users_moves_survive_a_resort(svc: AppServices, ollama
         gym = collections.find(conn, "Gym")["id"]  # type: ignore[index]
         cooking = collections.find(conn, "Cooking")["id"]  # type: ignore[index]
         collections.move(conn, pasta, cooking, gym)
-    svc.settings.set("sorting", {})  # rule removed
+    svc.settings.set("sorting", AUTO)  # rule removed
     job = run_job(svc, "sort", [pasta, london])
     assert job["status"] == "done" and job["message"].startswith("Re-sorted 2 videos")
     assert row(svc, pasta)["links"] == {"Gym": "user"}
@@ -173,7 +202,8 @@ def test_collections_routes(api: TestClient, svc: AppServices, ollama: FakeNet) 
     run_job(svc, "notes", ids)
     data = api.get("/api/collections").json()
     assert [c["name"] for c in data["collections"]] == NAMES
-    assert data["counts"] == {"waiting": 0, "processed": 2, "review": 1, "unsorted": 0, "untagged": 0}
+    assert data["counts"] == {"waiting": 0, "processed": 2, "unsorted": 2, "suggested": 2, "tag_suggested": 2,
+                              "untagged": 2, "ai_filed": 0, "ai_tagged": 0}
 
     made = api.post("/api/collections", json={"name": "Japan trip"}).json()
     assert "Japan trip" in [c["name"] for c in made["collections"]]
@@ -185,27 +215,35 @@ def test_collections_routes(api: TestClient, svc: AppServices, ollama: FakeNet) 
     assert api.delete("/api/collections/9999").status_code == 404
 
 
-def test_library_views_move_and_review(api: TestClient, svc: AppServices, ollama: FakeNet) -> None:
+def test_unsorted_accepting_suggestions_and_tags(api: TestClient, svc: AppServices, ollama: FakeNet) -> None:
     pasta, vague = seed(svc, "pasta", "something")
     run_job(svc, "notes", [pasta, vague])
     names = {c["name"]: c["id"] for c in api.get("/api/collections").json()["collections"]}
 
-    review = api.get("/api/library", params={"view": "review"}).json()
-    assert [card["id"] for card in review] == [vague]
-    card = review[0]
-    assert card["needs_review"] and card["new_collection"] == "Car stuff"
+    unsorted = api.get("/api/library", params={"view": "unsorted"}).json()
+    assert [card["id"] for card in unsorted] == [vague, pasta]
+    card = unsorted[0]
     assert card["suggestions"] == [{"name": "Music", "confidence": 0.25}]
+    assert card["tag_suggestions"] == ["tag", "other"]
     assert card["steps"] == ["do this", "then that"] and card["facts"] == ["one fact"]
+    assert "needs_review" not in card and "new_collection" not in card
 
+    # One click: the AI's pick. Or a different one. Or all of them at once.
+    assert [l["name"] for l in api.post(f"/api/review/{vague}/accept", json={}).json()["collections"]] == ["Music"]
+    api.delete(f"/api/items/{vague}/collections/{names['Music']}")
+    chosen = api.post(f"/api/review/{vague}/accept", json={"collection_id": names["Gym"]}).json()
+    assert [(l["name"], l["source"]) for l in chosen["collections"]] == [("Gym", "user")]
+    assert api.post("/api/review/accept-all").json() == {"accepted": 1}
+    assert api.get("/api/library", params={"view": "unsorted"}).json() == []
     cooking = api.get("/api/library", params={"view": "collection", "collection_id": names["Cooking"]}).json()
     assert [c["id"] for c in cooking] == [pasta] and cooking[0]["kind_label"] == "Recipe"
     assert api.get("/api/library", params={"view": "collection"}).status_code == 400
 
-    # Approving the AI's idea makes the new collection and files the video.
-    accepted = api.post(f"/api/review/{vague}/accept", json={}).json()
-    assert [l["name"] for l in accepted["collections"]] == ["Car stuff"]
-    assert accepted["needs_review"] is False
-    assert api.get("/api/library", params={"view": "review"}).json() == []
+    # Suggested tags: yes to one, no to the other.
+    tagged = api.post(f"/api/items/{pasta}/tag-suggestions", json={"names": ["tag"]}).json()
+    assert tagged["tags"] == ["tag"] and tagged["tag_suggestions"] == ["other"]
+    declined = api.post(f"/api/items/{pasta}/tag-suggestions", json={"names": ["other"], "accept": False}).json()
+    assert declined["tags"] == ["tag"] and declined["tag_suggestions"] == []
 
     # Drag and drop: from Cooking to Gym.
     moved = api.post(f"/api/items/{pasta}/move", json={"from_id": names["Cooking"], "to_id": names["Gym"]}).json()
@@ -250,39 +288,52 @@ def test_resort_route(api: TestClient, svc: AppServices, ollama: FakeNet) -> Non
     assert api.post("/api/sorting/resort", json={}).status_code == 400
     ids = seed(svc, "pasta", "something")
     run_job(svc, "notes", ids)
-    job = api.post("/api/sorting/resort", json={"which": "review"}).json()
-    assert job["params"]["item_ids"] == [ids[1]] and job["params"]["keep_manual"] is True
+    job = api.post("/api/sorting/resort", json={"which": "unsorted"}).json()
+    assert job["params"]["item_ids"] == [ids[1], ids[0]] and job["params"]["keep_manual"] is True
     done = wait_for_status(svc, job["id"], "done")
-    assert done["message"] == "Re-sorted 1 video: 1 waiting in Needs review."
+    assert done["message"] == "Re-sorted 2 videos: 2 in Unsorted with a suggestion."
 
 
 def test_sorting_settings_route(api: TestClient, svc: AppServices) -> None:
     data = api.get("/api/sorting/settings").json()
-    assert data["settings"]["mode"] == "my_list_plus_ideas"
+    assert data["settings"]["mode"] == "my_list" and data["settings"]["auto_sort"] is False
+    assert "safe_to_unsave" not in data["settings"] and "no_collection_tag" not in data["settings"]
     assert [k["id"] for k in data["kinds"]][:2] == ["recipe", "travel"]
-    changed = dict(data["settings"], mode="my_list", review_below=0.75,
+    changed = dict(data["settings"], auto_sort=True, review_below=0.75,
                    rules=[{"field": "author", "value": "@chef", "collection": "Cooking"}])
     saved = api.put("/api/sorting/settings", json=changed).json()["settings"]
-    assert saved["mode"] == "my_list" and saved["review_below"] == 0.75
+    assert saved["auto_sort"] is True and saved["review_below"] == 0.75
     assert saved["rules"][0]["value"] == "@chef"
     bad = dict(changed, max_collections=7)
     assert api.put("/api/sorting/settings", json=bad).status_code == 422
 
 
-def test_safe_to_unsave_follows_the_setting(api: TestClient, svc: AppServices, ollama: FakeNet) -> None:
-    (item_id,) = seed(svc, "pasta")
-    run_job(svc, "notes", [item_id])
-    assert row(svc, item_id)["safe_to_unsave"] == 1
-    settings = api.get("/api/sorting/settings").json()["settings"]
-    api.put("/api/sorting/settings", json=dict(settings, safe_to_unsave="done"))
-    assert row(svc, item_id)["safe_to_unsave"] == 0  # not ticked done yet
+def test_clearing_what_the_ai_did(api: TestClient, svc: AppServices, ollama: FakeNet) -> None:
+    from app.ai.sorting import tags
+
+    svc.settings.set("sorting", AUTO)
+    pasta, vague = seed(svc, "pasta", "something")
+    run_job(svc, "notes", [pasta, vague])
+    with svc.db.connect() as conn:
+        tags.add(conn, pasta, "mine")
+    counts = api.get("/api/notes/overview").json()["counts"]
+    assert (counts["ai_filed"], counts["ai_tagged"], counts["suggested"]) == (1, 4, 1)
+
+    assert api.post("/api/sorting/clear", json={"what": "ai_collections"}).json() == {"cleared": 1}
+    assert row(svc, pasta)["links"] == {}  # back in Unsorted
+    assert api.post("/api/sorting/clear", json={"what": "ai_tags"}).json() == {"cleared": 4}
+    with svc.db.connect() as conn:
+        assert [t["name"] for t in tags.of_item(conn, pasta)] == ["mine"]  # the user's own stays
+    api.post("/api/sorting/clear", json={"what": "suggestions"})
+    assert api.get("/api/notes/overview").json()["counts"]["suggested"] == 0
+    assert api.post("/api/sorting/clear", json={"what": "everything"}).status_code == 422
 
 
 def test_tags_folders_and_switched_off_collections(svc: AppServices, ollama: FakeNet) -> None:
     from app.ai.sorting import tags
     from app.ai.sorting.settings import Rule, SortingSettings, save
 
-    save(svc.settings, SortingSettings(ai_folder="AI ideas", no_collection_tag="unsorted", mode="ai_decides",
+    save(svc.settings, SortingSettings(ai_folder="AI ideas", auto_sort=True, auto_tag=True,
                                        rules=[Rule(field="text", value="pasta", tag="italian")]))
     pasta, vague, squat = seed(svc, "pasta", "something", "squat")
     with svc.db.connect() as conn:
@@ -297,9 +348,9 @@ def test_tags_folders_and_switched_off_collections(svc: AppServices, ollama: Fak
     with svc.db.connect() as conn:
         on_pasta = {t["name"]: t["source"] for t in tags.of_item(conn, pasta)}
         assert on_pasta == {"tag": "ai", "other": "ai", "italian": "rule"}
-        # Its only pick is a weak one, so it's in no collection and gets the tag.
-        assert "unsorted" in {t["name"] for t in tags.of_item(conn, vague)}
-        # The AI picked "Gym", which is switched off: even "AI decides" mustn't use it.
+        # Its only pick is a weak one, so it's in no collection, and there's no "unsorted" tag.
+        assert "unsorted" not in {t["name"] for t in tags.of_item(conn, vague)}
+        # The AI picked "Gym", which is switched off: it mustn't use it.
         assert collections.links_of(conn, squat) == []
         assert collections.find(conn, "AI ideas")["id"] == folder
 
@@ -310,6 +361,7 @@ def test_tags_folders_and_switched_off_collections(svc: AppServices, ollama: Fak
 def test_ai_tags_reuse_and_keep_the_users_own(api: TestClient, svc: AppServices, ollama: FakeNet) -> None:
     from app.ai.sorting import tags
 
+    svc.settings.set("sorting", {"auto_tag": True})
     pasta, london = seed(svc, "pasta", "london")
     with svc.db.connect() as conn:
         tags.add(conn, pasta, "mine")

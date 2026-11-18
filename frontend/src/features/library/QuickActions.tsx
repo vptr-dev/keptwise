@@ -12,7 +12,7 @@ import { COLOR_DOTS, TAGS_PER_SAVE, announceChange, organizeApi, type Tag } from
 import { COLLECTION_LIMIT, COLLECTIONS_PER_SAVE, sortingApi, type Collection, type ItemCard } from "../sorting/sortingApi";
 import { libraryApi, type LibraryItem } from "./libraryApi";
 
-type Panel = "tags" | "collection" | "plan" | "unsave";
+type Panel = "tags" | "collection" | "plan";
 
 const BUTTON =
   "flex h-7 w-7 items-center justify-center rounded-full bg-white/95 p-1.5 text-zinc-700 shadow ring-1 ring-black/5 transition hover:bg-indigo-600 hover:text-white focus-visible:outline-2 focus-visible:outline-indigo-500 dark:bg-zinc-900/95 dark:text-zinc-200";
@@ -50,7 +50,6 @@ export default function QuickActions({
     { kind: "tags", label: "Tags", icon: icons.tag },
     { kind: "collection", label: "Collection", icon: icons.folder },
     { kind: "plan", label: "Add to a plan", icon: icons.plans },
-    { kind: "unsave", label: "Unsave", icon: icons.unsave },
   ];
 
   return (
@@ -86,11 +85,6 @@ export default function QuickActions({
       {panel?.kind === "plan" && (
         <Popover anchor={panel.anchor} onClose={close} label="Plans">
           <PlanPanel item={item} onChange={changed} />
-        </Popover>
-      )}
-      {panel?.kind === "unsave" && (
-        <Popover anchor={panel.anchor} onClose={close} label="Unsave" width={280}>
-          <UnsavePanel item={item} onChange={changed} />
         </Popover>
       )}
     </>
@@ -388,64 +382,6 @@ export function PlanPanel({ item, onChange }: { item: LibraryItem; onChange: (ca
           onChange={(e) => setNewName(e.target.value)}
         />
       </form>
-      <Problem text={problem} />
-    </div>
-  );
-}
-
-// ---------- unsave ----------
-
-export function UnsavePanel({ item, onChange }: { item: LibraryItem; onChange: (card: LibraryItem) => void }) {
-  const [problem, setProblem] = useState<string | null>(null);
-  const [opened, setOpened] = useState(false);
-
-  async function patch(change: Partial<Pick<LibraryItem, "safe_to_unsave" | "unsaved">>) {
-    setProblem(null);
-    try {
-      onChange(await libraryApi.patch(item.id, change));
-    } catch (e) {
-      setProblem(errorText(e));
-    }
-  }
-
-  async function openIt() {
-    setProblem(null);
-    try {
-      await libraryApi.openInBrowser(item.id);
-      setOpened(true);
-    } catch (e) {
-      setProblem(errorText(e));
-    }
-  }
-
-  return (
-    <div>
-      <PanelTitle hint={`Keptwise never changes anything on ${item.platform_name}: you unsave it there yourself.`}>
-        Unsave
-      </PanelTitle>
-      {item.unsaved ? (
-        <>
-          <p className="px-2 pb-1 text-sm text-emerald-700 dark:text-emerald-400">You've unsaved this on {item.platform_name}. It stays here.</p>
-          <button type="button" className={ROW} onClick={() => patch({ unsaved: false })}>
-            Undo: it's still saved there
-          </button>
-        </>
-      ) : (
-        <>
-          <button type="button" className={ROW} onClick={openIt}>
-            <span className="h-4 w-4 shrink-0">{icons.external}</span>
-            Open on {item.platform_name} to unsave it
-          </button>
-          <button type="button" className={ROW} onClick={() => patch({ unsaved: true })}>
-            <span className="h-4 w-4 shrink-0">{icons.check}</span>
-            {opened ? "Done, I've unsaved it" : `I've unsaved it on ${item.platform_name}`}
-          </button>
-          <button type="button" className={ROW} onClick={() => patch({ safe_to_unsave: !item.safe_to_unsave })}>
-            <span className="h-4 w-4 shrink-0">{icons.list}</span>
-            {item.safe_to_unsave ? "Take it off the Unsave list" : "Put it on the Unsave list"}
-          </button>
-        </>
-      )}
       <Problem text={problem} />
     </div>
   );

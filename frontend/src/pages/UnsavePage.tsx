@@ -8,7 +8,6 @@ import ProgressBar from "../components/ProgressBar";
 import { icons } from "../components/icons";
 import { Button, Notice } from "../components/ui";
 import {
-  RULE_LABELS,
   displayTitle,
   formatDate,
   libraryApi,
@@ -127,7 +126,7 @@ export default function UnsavePage() {
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Unsave</h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          <p className="kw-tip text-sm text-zinc-500 dark:text-zinc-400">
             These saves are kept here with their notes, so you can remove them from the app you saved them in.
           </p>
         </div>
@@ -148,15 +147,11 @@ export default function UnsavePage() {
       <div className="mt-5 space-y-4">
         <Tip id="unsave-how">
           Keptwise never logs in to or changes anything on TikTok, YouTube, Instagram or Facebook. “Unsave one by
-          one” opens each video in your browser so you can unsave it yourself, then ticks it off here. In the
-          Library, a save's Unsave button does the same for one save.
+          one” opens each video in your browser so you can unsave it yourself, then ticks it off here.
         </Tip>
         {list && (
-          <p className="text-sm text-zinc-600 dark:text-zinc-400">
-            A save goes on this list {RULE_LABELS[list.rule]}.{" "}
-            <a href="#/settings?section=sorting" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400">
-              Change this in Settings
-            </a>
+          <p className="kw-tip text-sm text-zinc-600 dark:text-zinc-400">
+            A save goes on this list by itself as soon as its notes are written, or when you delete it here.
           </p>
         )}
         {exported && (
@@ -181,10 +176,10 @@ export default function UnsavePage() {
           <EmptyState
             icon={icons.unsave}
             title="Nothing to unsave yet"
-            action={<Button onClick={() => navigate("/collections")}>Write AI notes</Button>}
+            action={<Button onClick={() => navigate("/transcripts")}>Write AI notes</Button>}
           >
-            A save shows up here {RULE_LABELS[list.rule]}. Then it's safe to remove it from the platform, because
-            everything useful about it stays in Keptwise.
+            A save shows up here as soon as its notes are written. Then it's safe to remove it from the platform,
+            because everything useful about it stays in Keptwise.
           </EmptyState>
         )}
 

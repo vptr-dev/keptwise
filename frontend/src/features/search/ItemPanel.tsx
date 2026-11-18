@@ -49,7 +49,7 @@ export default function ItemPanel({
           <div className="min-w-0 flex-1">
             <h2 className="text-lg font-semibold leading-snug">{item?.title ?? (error ? "Couldn't open it" : "Loading…")}</h2>
             {item && (
-              <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
+              <p className="kw-tip mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
                 {[item.platform_name, item.author ? `@${item.author.replace(/^@/, "")}` : null, formatDuration(item.duration_s)]
                   .filter(Boolean)
                   .join(" · ")}
@@ -130,7 +130,7 @@ export default function ItemPanel({
                   </p>
                 ) : (
                   <p className="text-zinc-500">
-                    {details?.transcript === "" ? "No speech in this video." : "No transcript yet. Make one on the Transcripts screen."}
+                    {details?.transcript === "" ? "No speech in this video." : "No transcript yet. Make one on the Sort page."}
                   </p>
                 )}
               </Section>

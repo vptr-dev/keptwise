@@ -13,6 +13,9 @@ What happens, step by step:
 Run it:      .\\.venv\\Scripts\\python.exe desktop\\launcher.py
 Self-check:  add --smoke-test to open the window, check the hello page
              appears, close the window, and exit with code 0 (pass) or 1.
+
+Only one window at a time: starting it again while it's open just brings
+the open window to the front (single_instance.py).
 """
 
 from __future__ import annotations
@@ -46,7 +49,8 @@ import webview  # noqa: E402
 
 from app import __version__  # noqa: E402
 from app.main import create_app  # noqa: E402
-from window_icon import set_app_id, set_window_icon, tinted_icon  # noqa: E402
+import single_instance  # noqa: E402
+from window_icon import set_app_id, set_window_icon  # noqa: E402
 
 WINDOW_TITLE = "Keptwise"
 # The hello page shows this once it has talked to the backend.
@@ -163,14 +167,11 @@ class WindowControls:
             print(f"Couldn't fit the window to the work area: {error}")
 
     def set_accent(self, accent: str, dark: bool) -> bool:
-        """The page tells us its accent colour and theme, so the icon in the
-        taskbar and Alt+Tab can match it."""
+        """The page tells us its accent colour and theme. The taskbar icon
+        stays the plain white logo whatever they are (the user's choice)."""
         if self._window is None or not isinstance(accent, str):
             return False
-        import tempfile
-
-        icon = tinted_icon(ICON_FILE, accent[:20], bool(dark), Path(tempfile.gettempdir()) / "Keptwise-icons")
-        return set_window_icon(self._window, WINDOW_TITLE, icon)
+        return set_window_icon(self._window, WINDOW_TITLE, ICON_FILE)
 
     def minimize(self) -> None:
         if self._window:
@@ -249,6 +250,14 @@ def send_output_to_log(data_dir: Path | None) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     send_output_to_log(args.data_dir)
+    if not args.serve_only:
+        from app.paths import default_data_dir
+
+        if not single_instance.claim(args.data_dir or default_data_dir()):
+            # Already open: show that window instead of opening a second one.
+            print("Keptwise is already open; bringing its window to the front.")
+            single_instance.show_existing(WINDOW_TITLE)
+            return 0
     if FROZEN:
         from app.updater import clean_downloads
 
@@ -310,6 +319,7 @@ def main(argv: list[str] | None = None) -> int:
         services.shutdown()  # stop background jobs first, so the server can close
         server.stop()
         sock.close()
+        single_instance.release()
 
 
 if __name__ == "__main__":

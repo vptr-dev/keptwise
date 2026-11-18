@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.api.sorting import cards_by_id
 from app.library import scope
-from app.search import assistant
+from app.search import agent, assistant
+from app.db.undo import UNDO_STEP_HEADER
 from app.services import AppServices, services
 
 router = APIRouter(prefix="/api/assistant")
@@ -101,13 +102,67 @@ def delete_chat(chat_id: int, svc: AppServices = Depends(services)) -> dict[str,
     return list_chats(svc)
 
 
+class AgentTools:
+    """How the AI's actions run: through this same app's API, as the user,
+    each one recorded in the AI's Undo step."""
+
+    def __init__(self, request: Request, svc: AppServices) -> None:
+        from starlette.testclient import TestClient
+
+        from app.api.session import TOKEN_HEADER
+
+        self._client = TestClient(
+            request.app, raise_server_exceptions=False, headers={TOKEN_HEADER: request.app.state.session_token}
+        )
+        self._undo = svc.db.undo
+        self.actions = agent.catalog(request.app)
+
+    def call(self, method: str, path: str, body: dict[str, Any] | None, step: int) -> tuple[int, Any]:
+        if method == "PUT" and path.split("?")[0] == "/api/ui":
+            # The look settings are saved whole: change only what the AI named.
+            body = {**self._client.get("/api/ui").json(), **(body or {})}
+        response = self._client.request(
+            method, path, json=body if method != "GET" else None, headers={UNDO_STEP_HEADER: str(step)}
+        )
+        try:
+            return response.status_code, response.json()
+        except ValueError:
+            return response.status_code, response.text[:500]
+
+    def new_step(self) -> int:
+        return self._undo.new_step() if self._undo is not None else 0
+
+    def finish(self, step: int, label: str) -> None:
+        if self._undo is not None:
+            self._undo.finish(step, label)
+
+
+class ConfirmBody(BaseModel):
+    go: bool
+
+
 @router.post("/chats/{chat_id}/messages")
-def send_message(chat_id: int, body: MessageBody, svc: AppServices = Depends(services)) -> dict[str, Any]:
+def send_message(chat_id: int, body: MessageBody, request: Request,
+                 svc: AppServices = Depends(services)) -> dict[str, Any]:
     content = body.content.strip()
     if not content:
         raise HTTPException(status_code=400, detail="Type a message first.")
     try:
-        chat = assistant.send(svc.db, svc.search, svc.ai, chat_id, content, scope.current(svc.settings))
+        chat = assistant.send(svc.db, svc.search, svc.ai, chat_id, content, scope.current(svc.settings),
+                              AgentTools(request, svc))
     except KeyError as error:
         raise HTTPException(status_code=404, detail=str(error.args[0])) from error
+    return _with_cards(svc, chat)
+
+
+@router.post("/chats/{chat_id}/messages/{message_id}/confirm")
+def confirm_actions(chat_id: int, message_id: int, body: ConfirmBody, request: Request,
+                    svc: AppServices = Depends(services)) -> dict[str, Any]:
+    """The user's answer to big changes the AI is waiting to make."""
+    try:
+        chat = assistant.confirm(svc.db, svc.ai, chat_id, message_id, body.go, AgentTools(request, svc))
+    except KeyError as error:
+        raise HTTPException(status_code=404, detail=str(error.args[0])) from error
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
     return _with_cards(svc, chat)

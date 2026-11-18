@@ -50,26 +50,6 @@ def _window_handle(window: Any, title: str) -> int:
     return int(ctypes.windll.user32.FindWindowW(None, title) or 0)
 
 
-def tinted_icon(icon: Path, accent: str, dark: bool, folder: Path) -> Path:
-    """The logo with its front bookmark in the accent colour. "default" (white
-    on the dark tile, fine on light and dark taskbars) and unknown accents give
-    the plain logo, as does any failure. `dark` is kept for the caller; the
-    icon has its own dark tile, so it looks the same either way."""
-    if accent == "default":
-        return icon
-    try:
-        from logo_art import ACCENT_RGB, save_icon
-
-        if accent not in ACCENT_RGB:
-            return icon
-        folder.mkdir(parents=True, exist_ok=True)
-        out = folder / f"icon-{accent}.ico"
-        save_icon(out, ACCENT_RGB[accent])
-        return out
-    except Exception:  # noqa: BLE001 - the icon is decoration; never let it break the window
-        return icon
-
-
 def set_window_icon(window: Any, title: str, icon: Path) -> bool:
     """Give the open window the logo as its big (taskbar, Alt+Tab) and small
     (corner) icon. Returns False if it couldn't."""

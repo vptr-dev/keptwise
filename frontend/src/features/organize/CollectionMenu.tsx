@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { Collection } from "../sorting/sortingApi";
-import { COLOR_DOTS, COLORS } from "./organizeApi";
+import { ColourButton } from "../../components/ColourPicker";
 
 const ITEM =
   "flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-sm text-zinc-700 hover:bg-zinc-100 dark:text-zinc-200 dark:hover:bg-zinc-800";
@@ -86,26 +86,9 @@ export default function CollectionMenu({
               <span className={`block h-3 w-3 rounded-full bg-white transition ${collection.ai_allowed ? "translate-x-3" : ""}`} />
             </span>
           </button>
-          <div className="px-2.5 pb-1 pt-2 text-xs text-zinc-500">Colour</div>
-          <div className="flex flex-wrap gap-1.5 px-2.5 pb-2">
-            {COLORS.map((color) => (
-              <button
-                key={color}
-                type="button"
-                aria-label={`Colour ${color}`}
-                aria-pressed={collection.color === color}
-                onClick={() => onColor(color)}
-                className={`h-5 w-5 rounded-full ${COLOR_DOTS[color]} ${collection.color === color ? "ring-2 ring-zinc-900 ring-offset-1 dark:ring-white dark:ring-offset-zinc-900" : ""}`}
-              />
-            ))}
-            <button
-              type="button"
-              aria-label="No colour"
-              onClick={() => onColor(null)}
-              className="h-5 w-5 rounded-full border border-dashed border-zinc-400 text-[10px] leading-4 text-zinc-500"
-            >
-              ×
-            </button>
+          <div className="flex items-center justify-between gap-2 px-2.5 py-2">
+            <span className="text-sm">Colour</span>
+            <ColourButton value={collection.color} onPick={onColor} />
           </div>
           <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
           <button type="button" role="menuitem" className={`${ITEM} text-red-600 dark:text-red-400`} onClick={() => setConfirming(true)}>

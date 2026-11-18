@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 
 import { toast } from "../../components/Toasts";
 import { Button } from "../../components/ui";
-import { errorCode, errorText } from "../../lib/api";
+import { errorText } from "../../lib/api";
 import { navigate } from "../../lib/router";
 import { plansApi, type PlanSummary } from "../plans/plansApi";
 import { COLLECTIONS_PER_SAVE, sortingApi, type Collection } from "../sorting/sortingApi";
@@ -35,7 +35,6 @@ export default function BulkBar({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [plans, setPlans] = useState<PlanSummary[]>([]);
-  const [confirm, setConfirm] = useState<{ text: string; go: () => void } | null>(null);
 
   useEffect(() => {
     sortingApi.collections().then((o) => setCollections(o.collections)).catch(() => undefined);
@@ -53,22 +52,6 @@ export default function BulkBar({
       navigate(`/plans/${plan.id}`);
     } catch (e) {
       setError(errorText(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function ai(kind: "tags" | "sort", confirmed = false) {
-    setBusy(true);
-    setError(null);
-    setMessage(null);
-    setConfirm(null);
-    try {
-      const job = kind === "tags" ? await sortingApi.aiTags("with_notes", confirmed, ids) : await sortingApi.resort("all", true, confirmed, ids);
-      setMessage(`${job.title} started. You can keep working; it shows on the Collections screen.`);
-    } catch (e) {
-      if (errorCode(e) === "confirm_cost") setConfirm({ text: errorText(e), go: () => void ai(kind, true) });
-      else setError(errorText(e));
     } finally {
       setBusy(false);
     }
@@ -182,12 +165,6 @@ export default function BulkBar({
         ))}
         <option value="new">New plan with these…</option>
       </select>
-      <Button size="sm" variant="ghost" disabled={busy || ids.length === 0} onClick={() => void ai("tags")} title="The AI suggests tags for these saves (your own tags stay)">
-        AI tags
-      </Button>
-      <Button size="sm" variant="ghost" disabled={busy || ids.length === 0} onClick={() => void ai("sort")} title="The AI files these saves into your collections (it never makes new ones)">
-        AI sort
-      </Button>
       <Button
         size="sm"
         variant="ghost"
@@ -218,13 +195,6 @@ export default function BulkBar({
       <Button size="sm" variant="secondary" className="ml-auto" onClick={onClear}>
         Done selecting
       </Button>
-      {confirm && (
-        <div className="flex w-full flex-wrap items-center gap-2 text-xs text-amber-800 dark:text-amber-300">
-          {confirm.text}
-          <Button size="sm" onClick={confirm.go}>Yes, go ahead</Button>
-          <Button size="sm" variant="ghost" onClick={() => setConfirm(null)}>Cancel</Button>
-        </div>
-      )}
       {(message || error) && (
         <p className={`w-full text-xs ${error ? "text-red-600 dark:text-red-400" : "text-emerald-700 dark:text-emerald-400"}`} role="status">
           {error ?? message}

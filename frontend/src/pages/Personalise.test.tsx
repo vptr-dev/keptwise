@@ -58,6 +58,7 @@ test("storage lists models and asks before deleting one", async () => {
 test("appearance choices are passed on, and the look is put on the page", () => {
   const changes: Partial<Look>[] = [];
   render(<AppearanceSettings look={DEFAULT_LOOK} onChange={(c) => changes.push(c)} />);
+  fireEvent.click(screen.getByRole("button", { name: "Accent colour: Default. Change" }));
   fireEvent.click(screen.getByRole("radio", { name: "Teal" }));
   fireEvent.click(screen.getByRole("radio", { name: "Large" }));
   fireEvent.click(screen.getByLabelText(/Slim sidebar/));

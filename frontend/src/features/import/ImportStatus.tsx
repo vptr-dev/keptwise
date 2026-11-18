@@ -10,7 +10,7 @@ export function CopyingCard({ sent, total, onCancel }: { sent: number; total: nu
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <h2 className="font-medium">Copying your export into the app…</h2>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+          <p className="kw-tip text-sm text-zinc-500 dark:text-zinc-400">
             {total > 0 ? `${formatBytes(sent)} of ${formatBytes(total)}` : "Getting started"}
           </p>
         </div>
@@ -32,7 +32,7 @@ export function JobCard({ job, onCancel }: { job: Job; onCancel: () => void }) {
         <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
             <h2 className="truncate font-medium">{job.title}</h2>
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">{job.message ?? "Waiting to start…"}</p>
+            <p className="kw-tip text-sm text-zinc-500 dark:text-zinc-400">{job.message ?? "Waiting to start…"}</p>
           </div>
           <Button variant="secondary" size="sm" onClick={onCancel}>
             Cancel

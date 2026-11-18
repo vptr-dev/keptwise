@@ -31,6 +31,7 @@ from typing import Any, Literal
 from app.ai.base import Message
 from app.ai.service import AIService
 from app.db.connection import Database
+from app.search import agent
 from app.search.chat import NOTHING_FOUND, ChatAnswer, cited_numbers, describe_source, retrieval_query
 from app.search.service import HybridHit, SearchService
 
@@ -242,6 +243,7 @@ def get_chat(conn: sqlite3.Connection, chat_id: int) -> dict[str, Any] | None:
             "content": m["content"],
             "found": bool(m["found"]),
             "sources": json.loads(m["sources_json"]) if m["sources_json"] else [],
+            "actions": _public_actions(m["actions_json"]),
             "created_at": m["created_at"],
         }
         for m in conn.execute("SELECT * FROM chat_messages WHERE chat_id = ? ORDER BY id", (chat_id,))
@@ -276,11 +278,21 @@ def delete_chat(conn: sqlite3.Connection, chat_id: int) -> None:
     conn.execute("DELETE FROM chats WHERE id = ?", (chat_id,))
 
 
+def _public_actions(raw: str | None) -> dict[str, Any] | None:
+    """What the screen shows of the AI's actions (not its working notes)."""
+    if not raw:
+        return None
+    data = json.loads(raw)
+    return {"state": data.get("state"), "pending": data.get("pending", []), "changed": data.get("changed", [])}
+
+
 def _add_message(conn: sqlite3.Connection, chat_id: int, role: str, content: str,
-                 sources: list[dict[str, Any]] | None = None, found: bool = True) -> int:
+                 sources: list[dict[str, Any]] | None = None, found: bool = True,
+                 actions: dict[str, Any] | None = None) -> int:
     message_id = int(conn.execute(
-        "INSERT INTO chat_messages (chat_id, role, content, sources_json, found) VALUES (?, ?, ?, ?, ?)",
-        (chat_id, role, content, json.dumps(sources) if sources is not None else None, int(found)),
+        "INSERT INTO chat_messages (chat_id, role, content, sources_json, found, actions_json) VALUES (?, ?, ?, ?, ?, ?)",
+        (chat_id, role, content, json.dumps(sources) if sources is not None else None, int(found),
+         json.dumps(actions) if actions is not None else None),
     ).lastrowid or 0)
     conn.execute("UPDATE chats SET updated_at = strftime('%Y-%m-%dT%H:%M:%SZ','now') WHERE id = ?", (chat_id,))
     return message_id
@@ -349,8 +361,66 @@ def answer(db: Database, search: SearchService, ai: AIService, chat: dict[str, A
     }
 
 
+def _agent_message(conn: sqlite3.Connection, chat_id: int, result: dict[str, Any]) -> None:
+    if result["mode"] == "waiting":
+        actions = {"state": "waiting", "pending": result["pending"], "rounds": result["state"]["rounds"],
+                   "changed": result["state"]["changed"]}
+    else:
+        actions = {"state": "done", "pending": [], "changed": result.get("changed", []),
+                   "rounds": result.get("rounds", [])[-30:]}  # kept to see what the AI did
+    _add_message(conn, chat_id, "assistant", result["say"], [], True, actions)
+
+
+def _agent_label(content: str) -> str:
+    words = " ".join(content.split())
+    return "AI: " + (words[:40] + "…" if len(words) > 40 else words)
+
+
+def confirm(db: Database, ai: AIService, chat_id: int, message_id: int, go: bool, agent_tools: Any) -> dict[str, Any]:
+    """The user pressed "Do it" (go) or "Cancel" on the AI's waiting changes."""
+    with db.connect() as conn:
+        row = conn.execute("SELECT * FROM chat_messages WHERE id = ? AND chat_id = ?", (message_id, chat_id)).fetchone()
+        if row is None or not row["actions_json"]:
+            raise KeyError("That message doesn't exist any more.")
+        data = json.loads(row["actions_json"])
+        if data.get("state") != "waiting":
+            raise ValueError("That was already answered.")
+        chat = get_chat(conn, chat_id) or {}
+    if not go:
+        with db.connect() as conn:
+            data["state"] = "cancelled"
+            conn.execute("UPDATE chat_messages SET actions_json = ? WHERE id = ?", (json.dumps(data), message_id))
+            _add_message(conn, chat_id, "assistant", "OK, I left everything as it was.", [], True)
+            return get_chat(conn, chat_id) or {}
+    question = next((m["content"] for m in reversed(chat["messages"]) if m["role"] == "user" and m["id"] < message_id), "")
+    history: list[Message] = [{"role": m["role"], "content": m["content"]} for m in chat["messages"] if m["id"] < message_id]
+    state = {"rounds": data.get("rounds", []), "changed": list(data.get("changed", []))}
+    step = agent_tools.new_step()
+    try:
+        agent.run_approved(agent_tools.call, agent_tools.actions, data["pending"], state, step)
+        with db.connect() as conn:
+            data["state"] = "done"
+            data["changed"] = state["changed"]
+            conn.execute("UPDATE chat_messages SET actions_json = ? WHERE id = ?", (json.dumps(data), message_id))
+        try:
+            with db.connect() as conn:
+                library = agent.library_data(conn)
+            result = agent.run(ai.chat_json, agent_tools.call, agent_tools.actions, library, history, state, step)
+            if result["mode"] == "answer":
+                result = {"mode": "done", "say": agent._summary(state["changed"]), "changed": state["changed"]}
+        except Exception:  # noqa: BLE001 - the changes are made; only the follow-up failed
+            result = {"mode": "done", "say": agent._summary(state["changed"]), "changed": state["changed"]}
+        # The waiting message lists what was approved; this one only what came after.
+        result["changed"] = result.get("changed", [])[len(data["changed"]):]
+    finally:
+        agent_tools.finish(step, _agent_label(question))
+    with db.connect() as conn:
+        _agent_message(conn, chat_id, result)
+        return get_chat(conn, chat_id) or {}
+
+
 def send(db: Database, search: SearchService, ai: AIService, chat_id: int, content: str,
-         platform: str | None) -> dict[str, Any]:
+         platform: str | None, agent_tools: Any = None) -> dict[str, Any]:
     """Add the user's message, answer it, keep both. If the AI fails, the
     user's message is taken back out so the chat stays tidy (they can retry)."""
     with db.connect() as conn:
@@ -362,6 +432,24 @@ def send(db: Database, search: SearchService, ai: AIService, chat_id: int, conte
             conn.execute("UPDATE chats SET title = ? WHERE id = ?", (" ".join(content.split())[:60], chat_id))
     history: list[Message] = [{"role": m["role"], "content": m["content"]} for m in chat["messages"]]
     history.append({"role": "user", "content": content})
+    # In a plain "Ask anything" chat the AI can also do things in the app.
+    if agent_tools is not None and chat["tool"] == "ask" and not chat.get("target"):
+        step = agent_tools.new_step()
+        try:
+            ai.check_ready()
+            with db.connect() as conn:
+                library = agent.library_data(conn)
+            result = agent.run(ai.chat_json, agent_tools.call, agent_tools.actions, library, history, {}, step)
+        except Exception:
+            with db.connect() as conn:
+                conn.execute("DELETE FROM chat_messages WHERE id = ?", (user_id,))
+            raise
+        finally:
+            agent_tools.finish(step, _agent_label(content))
+        if result["mode"] != "answer":
+            with db.connect() as conn:
+                _agent_message(conn, chat_id, result)
+                return get_chat(conn, chat_id) or {}
     try:
         reply = answer(db, search, ai, chat, history, platform)
     except Exception:

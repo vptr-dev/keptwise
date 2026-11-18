@@ -9,6 +9,7 @@ import { Badge, Card } from "../../components/ui";
 import type { LibraryItem } from "../library/libraryApi";
 import { saveMenuItems } from "../library/saveMenu";
 import { formatDuration } from "../enrich/enrichApi";
+import CollectionPicker from "../organize/CollectionPicker";
 import TagEditor from "../organize/TagEditor";
 import { DRAG_TYPE, type Collection, type ItemCard as Item, type ItemLink } from "./sortingApi";
 
@@ -41,7 +42,7 @@ export default function ItemCard({
   onMove: (toId: number) => void;
   onRemove: (collectionId: number) => void;
   onChange?: (item: Item) => void; // its tags changed
-  actions?: ReactNode; // extra buttons (used by Needs review)
+  actions?: ReactNode; // extra buttons under the card
 }) {
   const [open, setOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -123,20 +124,15 @@ export default function ItemCard({
                   </button>
                 </span>
               ))}
-              <select
-                aria-label={`Move “${item.title ?? "this video"}” to`}
-                className="rounded-full border border-dashed border-zinc-300 bg-transparent px-2 py-0.5 text-xs text-zinc-500 hover:border-zinc-400 dark:border-zinc-700 dark:text-zinc-400"
-                value=""
-                onChange={(event) => event.target.value && onMove(Number(event.target.value))}
+              <CollectionPicker
+                collections={collections}
+                exclude={item.collections.map((link) => link.id)}
+                suggested={item.suggestions.map((pick) => pick.name)}
+                label={`${fromId === null ? "Add" : "Move"} “${item.title ?? "this video"}” to`}
+                onPick={(collection) => onMove(collection.id)}
               >
-                <option value="">{fromId === null ? "Add to…" : "Move to…"}</option>
-                {collections.map((collection) => (
-                  <option key={collection.id} value={collection.id}>
-                    {" ".repeat((collection.depth ?? 0) * 2)}
-                    {collection.name}
-                  </option>
-                ))}
-              </select>
+                {fromId === null ? "+ Add to…" : "Move to…"}
+              </CollectionPicker>
               {(item.facts.length > 0 || item.steps.length > 0) && (
                 <button
                   type="button"

@@ -180,36 +180,3 @@ def drop_unused(conn: sqlite3.Connection) -> None:
     conn.execute(
         "DELETE FROM tags WHERE color IS NULL AND NOT EXISTS (SELECT 1 FROM item_tags it WHERE it.tag_id = tags.id)"
     )
-
-
-# ---------- the "not in any collection" tag ----------
-
-
-def sync_no_collection(conn: sqlite3.Connection, item_id: int, tag_name: str) -> None:
-    """Give a save with AI notes but no collection the chosen tag, and take
-    it off again once it is in a collection. Empty tag_name = switched off."""
-    conn.execute("DELETE FROM item_tags WHERE item_id = ? AND source = 'auto'", (item_id,))
-    if not clean_tag(tag_name):
-        return
-    row = conn.execute(
-        """SELECT i.status = 'processed' AND NOT EXISTS
-               (SELECT 1 FROM item_collections ic WHERE ic.item_id = i.id) AS wanted
-           FROM items i WHERE i.id = ?""",
-        (item_id,),
-    ).fetchone()
-    if row and row["wanted"]:
-        add(conn, item_id, tag_name, "auto")
-
-
-def sync_all_no_collection(conn: sqlite3.Connection, tag_name: str) -> None:
-    """Do sync_no_collection for every save (after the setting changes)."""
-    conn.execute("DELETE FROM item_tags WHERE source = 'auto'")
-    if clean_tag(tag_name):
-        tag_id = ensure(conn, tag_name, over_limit=True)
-        conn.execute(
-            """INSERT OR IGNORE INTO item_tags (item_id, tag_id, source)
-               SELECT i.id, ?, 'auto' FROM items i WHERE i.status = 'processed' AND NOT EXISTS
-                   (SELECT 1 FROM item_collections ic WHERE ic.item_id = i.id)""",
-            (tag_id,),
-        )
-    drop_unused(conn)

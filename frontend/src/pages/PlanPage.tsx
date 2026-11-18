@@ -174,7 +174,7 @@ export default function PlanPage({ planId }: { planId: number }) {
                 onClick={(event) =>
                   openMenu(event, [
                     { label: "Rename…", icon: icons.pencil, onSelect: () => { setName(plan.name); setEditing(true); } },
-                    { kind: "colors", label: "Colour", value: plan.color, onPick: (color) => void act(() => plansApi.change(plan.id, { color })) },
+                    { kind: "colors", label: "Colour", value: plan.color, onPick: (color) => void act(() => plansApi.change(plan.id, { color: color ?? "accent" })) },
                     {
                       label: "Make a copy",
                       icon: icons.plus,

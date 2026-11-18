@@ -1,6 +1,6 @@
 // One save on its own page (#/item/12): picture, AI notes, next steps as a
 // checklist, key details, collections and the transcript.
-// Keys: 1-9 tick a step, D marks it done, O opens the video, Esc goes back.
+// Keys: 1-9 tick a step, O opens the video, Esc goes back.
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { icons } from "../components/icons";
@@ -11,8 +11,10 @@ import StepsChecklist from "../features/library/StepsChecklist";
 import Thumb from "../features/library/Thumb";
 import { displayTitle, formatDate, libraryApi, type ItemPage as Details, type LibraryItem } from "../features/library/libraryApi";
 import { announceChange } from "../features/organize/organizeApi";
+import CollectionPicker from "../features/organize/CollectionPicker";
 import TagEditor from "../features/organize/TagEditor";
-import { sortingApi, type Collection, type ItemCard } from "../features/sorting/sortingApi";
+import { TagIdeas, suggestionOf } from "../features/sorting/Unsorted";
+import { sortingApi, type Collection, type ItemCard, type Space } from "../features/sorting/sortingApi";
 import { errorText } from "../lib/api";
 import { navigate } from "../lib/router";
 
@@ -39,23 +41,25 @@ function Section({ title, children, aside }: { title: string; children: ReactNod
 }
 
 function NoNotesYet({ item }: { item: LibraryItem }) {
-  const [closed, setClosed] = useState(false);
-  if (item.status === "failed") {
+  if (item.gone) {
     return (
-      <Notice tone="error">
-        This video couldn't be read{item.error ? `: ${item.error}` : "."} It may be private or deleted.
+      <Notice tone="warning">
+        This video was taken down on {item.platform_name}, so it's in Archive → Deleted TikToks. Anything kept here stays.
       </Notice>
     );
   }
+  if (item.status === "failed") {
+    return <Notice tone="error">This video couldn't be read{item.error ? `: ${item.error}` : "."}</Notice>;
+  }
   const transcribed = item.status === "enriched";
-  if (closed) return null;
   return (
-    <Notice onClose={() => setClosed(true)}>
-      {transcribed ? "The transcript is ready. " : "This save hasn't been transcribed yet. "}
-      <a className="font-medium underline" href={transcribed ? "#/collections" : "#/transcripts"}>
-        {transcribed ? "Write AI notes on the Collections screen" : "Get transcripts on the Transcripts screen"}
-      </a>{" "}
-      to get a summary and next steps.
+    <Notice>
+      <b>Needs notes.</b>{" "}
+      {transcribed ? "The transcript is ready; " : "It hasn't been transcribed yet; "}
+      <a className="font-medium underline" href="#/transcripts">
+        {transcribed ? "write its notes on the Sort page" : "get its transcript on the Sort page"}
+      </a>
+      .
     </Notice>
   );
 }
@@ -66,12 +70,19 @@ export default function ItemPage({ itemId }: { itemId: number }) {
   const [busy, setBusy] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
   const [collections, setCollections] = useState<Collection[]>([]);
+  const [spaces, setSpaces] = useState<Space[]>([]);
 
   useEffect(() => {
     setDetails(null);
     setError(null);
     libraryApi.item(itemId).then(setDetails).catch((e) => setError(errorText(e)));
-    sortingApi.collections().then((o) => setCollections(o.collections)).catch(() => undefined);
+    sortingApi
+      .collections()
+      .then((o) => {
+        setCollections(o.collections);
+        setSpaces(o.spaces ?? []);
+      })
+      .catch(() => undefined);
   }, [itemId]);
 
   /** Tags or collections changed: keep the save's progress fields, take the rest. */
@@ -114,9 +125,6 @@ export default function ItemPage({ itemId }: { itemId: number }) {
     (index: number, done: boolean) => void update(() => libraryApi.tick(itemId, index, done)),
     [itemId, update],
   );
-  const toggleDone = useCallback(() => {
-    if (item) void update(() => libraryApi.patch(itemId, { done: !item.done }));
-  }, [item, itemId, update]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -127,15 +135,13 @@ export default function ItemPage({ itemId }: { itemId: number }) {
       } else if (item && /^[1-9]$/.test(event.key)) {
         const index = Number(event.key) - 1;
         if (index < item.steps.length && !busy) toggleStep(index, !item.steps_checked[index]);
-      } else if (item && event.key.toLowerCase() === "d" && !busy) {
-        toggleDone();
       } else if (item && event.key.toLowerCase() === "o") {
         window.open(item.url, "_blank", "noopener");
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [item, busy, toggleStep, toggleDone]);
+  }, [item, busy, toggleStep]);
 
   if (!item) {
     return (
@@ -154,6 +160,7 @@ export default function ItemPage({ itemId }: { itemId: number }) {
     item.saved_at ? `saved ${formatDate(item.saved_at)}` : null,
   ].filter(Boolean);
   const hasNotes = item.status === "processed";
+  const idea = item.collections.length === 0 ? suggestionOf(item, collections) : null;
   const started = item.steps_checked.some(Boolean);
 
   return (
@@ -168,11 +175,14 @@ export default function ItemPage({ itemId }: { itemId: number }) {
           <div className="flex flex-wrap items-center gap-1.5">
             <Badge>{item.platform_name}</Badge>
             {item.kind_label && <Badge tone="indigo">{item.kind_label}</Badge>}
-            {item.needs_review && <Badge tone="amber">Needs review</Badge>}
-            {item.done && <Badge tone="green">Done</Badge>}
+            {!hasNotes && !item.gone && item.status !== "failed" && <Badge tone="amber">Needs notes</Badge>}
+            {item.no_sound && <Badge>No sound</Badge>}
+            {item.gone && <Badge tone="red">Taken down</Badge>}
             {item.unsaved && <Badge>Unsaved on {item.platform_name}</Badge>}
           </div>
-          <h1 className="mt-2 text-2xl font-semibold leading-tight tracking-tight">{displayTitle(item)}</h1>
+          <h1 className="mt-2 line-clamp-3 break-words text-2xl font-semibold leading-tight tracking-tight" title={displayTitle(item)}>
+            {displayTitle(item)}
+          </h1>
           {meta.length > 0 && <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{meta.join(" · ")}</p>}
           {item.summary && <p className="mt-4 leading-relaxed text-zinc-700 dark:text-zinc-300">{item.summary}</p>}
 
@@ -185,28 +195,6 @@ export default function ItemPage({ itemId }: { itemId: number }) {
             >
               <span className="h-4 w-4">{icons.external}</span> Open on {item.platform_name}
             </a>
-            {hasNotes && (
-              <Button variant={item.done ? "secondary" : "primary"} disabled={busy} onClick={toggleDone}>
-                <span className="h-4 w-4">{icons.check}</span>
-                {item.done ? "Done (undo)" : "Mark as done"}
-              </Button>
-            )}
-            <Button
-              variant="ghost"
-              disabled={busy}
-              aria-pressed={item.safe_to_unsave}
-              title={item.safe_to_unsave ? "Click to take it off the Safe to unsave list" : undefined}
-              onClick={() => void update(() => libraryApi.patch(itemId, { safe_to_unsave: !item.safe_to_unsave }))}
-            >
-              <span
-                className={`flex h-4 w-4 items-center justify-center rounded border p-px ${
-                  item.safe_to_unsave ? "border-indigo-600 bg-indigo-600 text-white" : "border-zinc-400 text-transparent"
-                }`}
-              >
-                {icons.check}
-              </span>
-              Safe to unsave
-            </Button>
             <Button variant="ghost" onClick={() => navigate(`/chat?items=${itemId}`)} title="Ask the AI Assistant about this save">
               <span className="h-4 w-4">{icons.chat}</span>
               Ask AI
@@ -215,7 +203,7 @@ export default function ItemPage({ itemId }: { itemId: number }) {
               <Button
                 variant="ghost"
                 disabled={busy}
-                title="It moves to the Archive, where you can put it back"
+                title="It moves to the Archive, where you can put it back, and goes on the Unsave list"
                 onClick={() => void update(() => libraryApi.patch(itemId, { deleted: true }))}
               >
                 <span className="h-4 w-4">{icons.trash}</span>
@@ -315,33 +303,39 @@ export default function ItemPage({ itemId }: { itemId: number }) {
             ) : (
               <p className="text-sm text-zinc-500 dark:text-zinc-400">Not in a collection yet.</p>
             )}
-            {item.needs_review && item.review_reason && (
-              <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">{item.review_reason}</p>
+            {idea && (
+              <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-zinc-50 px-2.5 py-2 text-xs dark:bg-zinc-800/60">
+                <span className="text-zinc-500 dark:text-zinc-400">
+                  AI suggests <b className="font-medium text-zinc-800 dark:text-zinc-100">{idea.collection.name}</b> ({idea.fit})
+                </span>
+                <Button size="sm" onClick={() => void changeCollections(() => sortingApi.accept(item.id, idea.collection.id))}>
+                  Accept
+                </Button>
+              </div>
             )}
             {collections.length > 0 && (
-              <select
-                aria-label="Add to a collection"
-                value=""
-                onChange={(event) => {
-                  const id = Number(event.target.value);
-                  if (id) void changeCollections(() => sortingApi.move(item.id, null, id));
-                }}
-                className="mt-3 block w-full rounded-lg border border-dashed border-zinc-300 bg-transparent px-2.5 py-1.5 text-xs text-zinc-600 dark:border-zinc-700 dark:text-zinc-300"
-              >
-                <option value="">Add to a collection…</option>
-                {collections
-                  .filter((c) => !item.collections.some((link) => link.id === c.id))
-                  .map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {"  ".repeat(c.depth)}
-                      {c.name}
-                    </option>
-                  ))}
-              </select>
+              <div className="mt-3">
+                <CollectionPicker
+                  collections={collections}
+                  spaces={spaces}
+                  exclude={item.collections.map((link) => link.id)}
+                  suggested={item.suggestions.map((pick) => pick.name)}
+                  label="Add to a collection"
+                  onPick={(collection) => void changeCollections(() => sortingApi.move(item.id, null, collection.id))}
+                >
+                  + Add to a collection
+                </CollectionPicker>
+              </div>
             )}
           </Section>
           <Section title="Tags">
             <TagEditor item={item} onChange={mergeCard} />
+            <div className="mt-3">
+              <TagIdeas
+                item={item}
+                onAnswer={(names, accept) => void changeCollections(() => sortingApi.answerTags(item.id, names, accept))}
+              />
+            </div>
           </Section>
           <Section title="Plans">
             {(item.plans ?? []).length > 0 && (
@@ -364,10 +358,11 @@ export default function ItemPage({ itemId }: { itemId: number }) {
             </Section>
           )}
           <p className="text-xs text-zinc-400 dark:text-zinc-500">
-            Keys: <kbd>1</kbd>–<kbd>9</kbd> tick a step · <kbd>D</kbd> done · <kbd>O</kbd> open video · <kbd>Esc</kbd> back
+            Keys: <kbd>1</kbd>–<kbd>9</kbd> tick a step · <kbd>O</kbd> open video · <kbd>Esc</kbd> back
           </p>
         </aside>
       </div>
     </div>
   );
 }
+

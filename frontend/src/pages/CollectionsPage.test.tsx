@@ -1,8 +1,8 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, test, vi } from "vitest";
 
 import SortingSettings, { CollectionSortOptions } from "../features/sorting/SortingSettings";
-import { FakeEventSource, fakeBackend, httpError, makeJob } from "../test/fakeBackend";
+import { FakeEventSource, fakeBackend } from "../test/fakeBackend";
 import { libraryItem } from "../test/libraryItem";
 import CollectionsPage from "./CollectionsPage";
 
@@ -28,12 +28,12 @@ const tree = [
 const overview = (counts: Partial<Record<string, number>> = {}) => ({
   collections: tree,
   spaces,
-  counts: { waiting: 20, processed: 0, review: 0, unsorted: 0, ...counts },
+  counts: { waiting: 20, processed: 0, unsorted: 0, ...counts },
   limit: 50, per_save: 10, space_limit: 8, depth_limit: 5,
 });
 
 const notesOverview = (waiting = 20, isCloud = false) => ({
-  counts: { waiting, processed: 0, review: 0, unsorted: 0 },
+  counts: { waiting, processed: 0, unsorted: 0 },
   ai_label: isCloud ? "Claude · claude-haiku-5-5" : "Ollama · gemma4:12b",
   is_cloud: isCloud,
   cloud_batch_limit: 50,
@@ -43,14 +43,13 @@ const card = (overrides: Record<string, unknown>) => ({
   id: 1, platform: "tiktok", platform_name: "TikTok", url: "https://t/1", author: "study.notes", duration_s: 30,
   status: "processed", has_thumbnail: false, title: "Chemistry notes for GCSE", caption: "notes", summary: "Revision notes.",
   kind: "learning", kind_label: "Tip or lesson", facts: ["Atoms have protons"], steps: ["Make flashcards"], tags: ["gcse"],
-  needs_review: false, review_reason: null, suggestions: [], new_collection: null, error: null,
+  suggestions: [], tag_suggestions: [], error: null,
   collections: [{ id: 1, name: "Study", origin: "mine", source: "ai", confidence: 0.95 }], ...overrides,
 });
 
 const sortSettings = {
-  auto_sort: true, mode: "my_list_plus_ideas", platform_collections: "hint", max_collections: 2, rules: [], review_below: 0.6,
-  kind_steps: { recipe: "Ingredients and steps." }, safe_to_unsave: "processed",
-  ai_folder: "", tags_per_video: 6, tag_mode: "free", my_tags: [], no_collection_tag: "unsorted",
+  auto_sort: false, auto_tag: false, mode: "my_list", platform_collections: "hint", max_collections: 2, rules: [], review_below: 0.6,
+  kind_steps: { recipe: "Ingredients and steps." }, ai_folder: "", tags_per_video: 6, tag_mode: "free", my_tags: [],
 };
 const kinds = [{ id: "recipe", label: "Recipe", default: "Ingredients and steps." }];
 
@@ -243,68 +242,25 @@ test("spaces: add one, and the full one says so", async () => {
 
 // ---------- the three ways to organise ----------
 
-test("let the AI organise: sorting with live progress, and the switch for filing by itself", async () => {
-  const sortJob = (overrides: Record<string, unknown>) => makeJob({ id: 4, kind: "sort", title: "AI sort for 2 videos", total: 2, ...overrides });
-  const calls = fakeBackend(base({
-    "GET /api/collections": overview({ processed: 5, unsorted: 2, waiting: 20 }),
-    "GET /api/notes/overview": notesOverview(20),
-    "POST /api/sorting/resort": sortJob({}),
-  }));
+test("the Collections page has no AI buttons: the AI's work is on the Sort page", async () => {
+  fakeBackend(base({ "GET /api/collections": overview({ processed: 5, unsorted: 2, waiting: 20 }) }));
   render(<CollectionsPage />);
-  fireEvent.click(await screen.findByRole("button", { name: "Organise" })); // the three ways fold away up top
-  fireEvent.click(await screen.findByRole("button", { name: /Let the AI organise/ }));
-  // Notes are written on the Transcripts page now; this only points there.
-  expect(await screen.findByTestId("notes-waiting")).toHaveTextContent("20 saves have a transcript");
-  fireEvent.click(screen.getByRole("button", { name: "Write them on the Transcripts page" }));
-  expect(window.location.hash).toBe("#/transcripts");
-
-  fireEvent.click(screen.getByRole("button", { name: "Sort the 2 not in a collection" }));
-  await waitFor(() => expect(calls.find((c) => c.url === "/api/sorting/resort")?.body).toMatchObject({ which: "unsorted", keep_manual: true }));
-  act(() => {
-    FakeEventSource.last?.emit("job", sortJob({ status: "running", progress: 1, message: "Sorting video 2 of 2…" }));
-  });
-  expect(await screen.findByText("Sorting video 2 of 2…")).toBeInTheDocument();
-  expect(screen.getByText("1 / 2")).toBeInTheDocument();
-
-  const auto = screen.getByRole("switch", { name: /File new saves by themselves/ });
-  await waitFor(() => expect(auto).toBeChecked());
-  fireEvent.click(auto);
-  await waitFor(() => expect((calls.find((c) => c.method === "PUT")?.body as { auto_sort: boolean }).auto_sort).toBe(false));
-});
-
-test("paid cloud AI asks before it spends money, and a missing model points to the AI settings", async () => {
-  let missing = false;
-  const calls = fakeBackend(base({
-    "GET /api/collections": overview({ processed: 5, unsorted: 2 }),
-    "POST /api/sorting/resort": (body: unknown) =>
-      missing
-        ? httpError(400, { code: "model_missing", detail: "The model gemma4:12b isn't downloaded yet." })
-        : (body as { confirm_cost: boolean }).confirm_cost
-          ? makeJob({ id: 4, kind: "sort", status: "done" })
-          : httpError(409, { code: "confirm_cost", detail: "This sends about 2 requests to Claude, which your API key pays for. Continue?" }),
-  }));
-  render(<CollectionsPage />);
-  fireEvent.click(await screen.findByRole("button", { name: "Organise" })); // the three ways fold away up top
-  fireEvent.click(await screen.findByRole("button", { name: /Let the AI organise/ }));
-  fireEvent.click(await screen.findByRole("button", { name: "Sort the 2 not in a collection" }));
-  expect(await screen.findByText(/which your API key pays for/)).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Yes, go ahead" }));
-  await waitFor(() => expect(calls.filter((c) => c.url === "/api/sorting/resort")).toHaveLength(2));
-  expect(calls.filter((c) => c.url === "/api/sorting/resort")[1].body).toMatchObject({ which: "unsorted", confirm_cost: true });
-
-  missing = true;
-  await waitFor(() => expect(screen.getByRole("button", { name: "Sort the 2 not in a collection" })).toBeEnabled());
-  fireEvent.click(screen.getByRole("button", { name: "Sort the 2 not in a collection" }));
-  expect(await screen.findByText("The model gemma4:12b isn't downloaded yet.")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Open AI settings" })).toBeInTheDocument();
+  fireEvent.click(await screen.findByRole("button", { name: "Organise" }));
+  expect(await screen.findByRole("button", { name: /Organise by hand/ })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /Bring from your platform/ })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /Let the AI organise/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: /AI sort/ })).not.toBeInTheDocument();
+  expect(screen.queryByRole("tab", { name: /Needs review/ })).not.toBeInTheDocument();
+  expect(screen.getByRole("tab", { name: /Unsorted/ })).toHaveTextContent("2");
 });
 
 test("how the AI sorts is chosen here: each choice and the user's rules are saved", async () => {
   const calls = fakeBackend(base());
   render(<CollectionSortOptions collections={tree as never} />);
-  fireEvent.click(await screen.findByRole("radio", { name: "Only my collections" }));
+  expect(await screen.findByText(/never makes new ones/)).toBeInTheDocument();
+  fireEvent.click(await screen.findByRole("radio", { name: "Just one" }));
   await waitFor(() => expect(calls.filter((c) => c.method === "PUT")).toHaveLength(1));
-  expect((calls.find((c) => c.method === "PUT")?.body as { mode: string }).mode).toBe("my_list");
+  expect((calls.find((c) => c.method === "PUT")?.body as { max_collections: number }).max_collections).toBe(1);
 
   fireEvent.click(screen.getByRole("radio", { name: "Clear only" }));
   await waitFor(() => expect(calls.filter((c) => c.method === "PUT")).toHaveLength(2));
@@ -337,63 +293,53 @@ test("the Settings section keeps what the notes contain, and whether the AI look
   const pictures = await screen.findByRole("switch", { name: /Use pictures as well/ });
   expect(screen.getByRole("heading", { name: "Notes" })).toBeInTheDocument();
   expect(pictures).toBeChecked(); // on unless switched off
-  // Sorting is on the Collections page and tagging on the Tags page.
-  expect(screen.queryByRole("radio", { name: "Only my collections" })).not.toBeInTheDocument();
+  // How the AI picks collections and tags is on the Sort page; unsaving has no setting.
+  expect(screen.queryByRole("radio", { name: "Just one" })).not.toBeInTheDocument();
+  expect(screen.queryByText(/Safe to unsave/)).not.toBeInTheDocument();
   expect(screen.queryByRole("radio", { name: "Up to 10" })).not.toBeInTheDocument();
   fireEvent.click(pictures);
   await waitFor(() => expect((calls.find((c) => c.method === "PUT")?.body as { look_at_pictures: boolean }).look_at_pictures).toBe(false));
 });
 
-test("organise by hand: Needs review shows why, and approving files the save", async () => {
-  const unsure = card({
-    id: 13, title: "4k 60fps Video Clip", needs_review: true, collections: [], new_collection: "Video Quality",
-    review_reason: "The AI suggests a new collection: “Video Quality”. Closest in your list: Music.",
-    suggestions: [{ name: "Music", confidence: 0.25 }],
-  });
+test("Unsorted: accept where the AI thinks a save goes, or choose another", async () => {
+  const unsure = card({ id: 13, title: "4k 60fps Video Clip", collections: [], suggestions: [{ name: "Music", confidence: 0.75 }] });
   const calls = fakeBackend(base({
-    "GET /api/collections": overview({ review: 1, unsorted: 4, processed: 20, waiting: 0 }),
-    "GET /api/library?view=review": [unsure],
+    "GET /api/collections": overview({ unsorted: 4, processed: 20, waiting: 0 }),
+    "GET /api/library?view=unsorted": [unsure],
     "POST /api/review/13/accept": card({ id: 13 }),
   }));
-  render(<CollectionsPage selection="review" />);
-  expect(await screen.findByText(/Closest in your list: Music/)).toBeInTheDocument();
-  expect(screen.getByRole("heading", { name: "Needs review" })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Make “Video Quality”" }));
-  await waitFor(() => expect(calls.find((c) => c.url === "/api/review/13/accept")?.body).toEqual({ new_name: "Video Quality" }));
-  fireEvent.click(screen.getByRole("button", { name: "Put in Music" }));
-  await waitFor(() => expect(calls.filter((c) => c.url === "/api/review/13/accept")).toHaveLength(2));
+  render(<CollectionsPage selection="unsorted" />);
+  expect(await screen.findByRole("heading", { name: "Unsorted" })).toBeInTheDocument();
+  const row = await screen.findByTestId("unsorted-13");
+  fireEvent.click(within(row).getByRole("button", { name: "Accept" }));
+  await waitFor(() => expect(calls.find((c) => c.url === "/api/review/13/accept")?.body).toEqual({}));
+  fireEvent.click(within(row).getByRole("button", { name: "Choose another" }));
+  const picker = await screen.findByRole("dialog", { name: /Choose a collection/ });
+  fireEvent.change(within(picker).getByLabelText("Find a collection"), { target: { value: "chem" } });
+  fireEvent.click(within(picker).getByRole("button", { name: /Chemistry/ }));
+  await waitFor(() => expect(calls.filter((c) => c.url === "/api/review/13/accept")[1]?.body).toEqual({ collection_id: 4 }));
 
-  fireEvent.click(screen.getByRole("button", { name: "Organise" }));
-  fireEvent.click(await screen.findByRole("button", { name: /Organise by hand/ }));
-  fireEvent.click(await screen.findByRole("button", { name: "Not in a collection (4)" }));
-  expect(window.location.hash).toBe("#/collections/unsorted");
+  // The old Needs review address lands here too.
+  render(<CollectionsPage selection="review" />);
+  expect((await screen.findAllByRole("heading", { name: "Unsorted" })).length).toBe(2);
 });
 
-test("bring from your platforms: transfer them all, or link one by one", async () => {
+test("bring from your platform: one button makes them here, and it says what happens next", async () => {
   const link = (name: string, platform: string, extra: Record<string, unknown> = {}) => ({
     platform, platform_name: platform === "tiktok" ? "TikTok" : "YouTube", name, count: platform === "tiktok" ? 0 : 4,
     membership_known: platform !== "tiktok", collection_id: null, collection_name: null, mode: "auto", filed: 0, ...extra,
   });
-  const links = { links: [link("Recipes", "youtube"), link("gym", "tiktok")], room_left: 46 };
+  const links = { links: [link("Recipes", "youtube"), link("gym", "tiktok"), link("Music", "tiktok", { collection_id: 3, collection_name: "Music" })], room_left: 46 };
   const calls = fakeBackend(base({
     "GET /api/platform-collections": links,
-    "POST /api/platform-collections/transfer": { ...links, linked: 2, made: 2, filed: 4, no_room: 0 },
-    "PUT /api/platform-collections": { ...links, filed: 4 },
+    "POST /api/platform-collections/transfer": { ...links, linked: 2, made: 1, filed: 4, no_room: 0 },
   }));
   render(<CollectionsPage selection="links" />);
-  expect(await screen.findByText("“Recipes”")).toBeInTheDocument();
-  expect(screen.getByText(/only lists the/)).toBeInTheDocument(); // TikTok gives names only
-
-  fireEvent.click(await screen.findByRole("button", { name: "Transfer 2 now" }));
+  expect(await screen.findByText(/TikTok's data only lists your collection names/)).toBeInTheDocument();
+  expect(screen.getByText("Recipes")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Make 2 collections here" }));
   await waitFor(() => expect(calls.find((c) => c.url === "/api/platform-collections/transfer")?.body).toEqual({ space_id: 1, parent_id: null }));
-  expect(await screen.findByText("Linked 2 platform collections, made 2 new collections, filed 4 saves.")).toBeInTheDocument();
-
-  fireEvent.change(screen.getByLabelText("App collection for “Recipes”"), { target: { value: "1" } });
-  await waitFor(() =>
-    expect(calls.find((c) => c.method === "PUT" && c.url === "/api/platform-collections")?.body).toEqual({ platform: "youtube", name: "Recipes", collection_id: 1, mode: "auto" }),
-  );
-  fireEvent.change(screen.getByLabelText("App collection for “gym”"), { target: { value: "new" } });
-  await waitFor(() =>
-    expect(calls.filter((c) => c.method === "PUT" && c.url === "/api/platform-collections")[1]?.body).toMatchObject({ create_collection: true, name: "gym", space_id: 1 }),
-  );
+  expect(await screen.findByText("Made 1 collection in My saves, 1 already existed and was kept, 4 saves put in them.")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Go to Sort" }));
+  expect(window.location.hash).toBe("#/transcripts");
 });

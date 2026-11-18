@@ -15,7 +15,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 
-import { COLOR_DOTS, COLORS } from "../features/organize/organizeApi";
+import ColourPicker, { Swatch, colourLabel } from "./ColourPicker";
 import { icons } from "./icons";
 
 export type MenuItem =
@@ -30,7 +30,7 @@ export type MenuItem =
       hint?: string; // greyed text on the right, e.g. a shortcut
     }
   | { kind: "panel"; label: string; icon?: ReactNode; title: string; width?: number; panel: (close: () => void) => ReactNode }
-  | { kind: "colors"; label: string; value: string | null; onPick: (color: string) => void }
+  | { kind: "colors"; label: string; value: string | null; onPick: (color: string | null) => void } // null: the accent colour
   | { kind: "divider" }
   | { kind: "heading"; label: string };
 
@@ -147,23 +147,33 @@ function Row({ item, onClose, onPanel }: { item: MenuItem; onClose: () => void; 
     return <p className="px-2.5 pb-0.5 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-zinc-400">{item.label}</p>;
   if (item.kind === "colors")
     return (
-      <div className="flex items-center gap-2 px-2.5 py-1.5" role="group" aria-label={item.label}>
-        <span className="mr-auto text-sm">{item.label}</span>
-        {COLORS.map((color) => (
-          <button
-            key={color}
-            type="button"
-            role="menuitemradio"
-            aria-checked={item.value === color}
-            aria-label={`Colour ${color}`}
-            onClick={() => {
-              item.onPick(color);
-              onClose();
-            }}
-            className={`h-4 w-4 rounded-full ${COLOR_DOTS[color]} ${item.value === color ? "ring-2 ring-zinc-900 ring-offset-1 dark:ring-white dark:ring-offset-zinc-900" : ""} focus-visible:outline-2 focus-visible:outline-indigo-500`}
-          />
-        ))}
-      </div>
+      <button
+        type="button"
+        role="menuitem"
+        className={`${ROW} hover:bg-zinc-100 focus:bg-zinc-100 dark:hover:bg-zinc-800 dark:focus:bg-zinc-800`}
+        onClick={() =>
+          onPanel({
+            title: item.label,
+            width: 232,
+            render: (close) => (
+              <ColourPicker
+                value={item.value}
+                onPick={(colour) => {
+                  item.onPick(colour);
+                  close();
+                }}
+              />
+            ),
+          })
+        }
+      >
+        <span className="flex h-4 w-4 shrink-0 items-center justify-center text-zinc-500">{icons.palette}</span>
+        <span className="flex-1 truncate">{item.label}…</span>
+        <span className="flex items-center gap-1.5 text-xs text-zinc-400">
+          <Swatch colour={item.value === "accent" ? null : item.value} />
+          {colourLabel(item.value)}
+        </span>
+      </button>
     );
   if (item.kind === "panel")
     return (

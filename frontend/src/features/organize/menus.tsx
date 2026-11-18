@@ -67,7 +67,7 @@ export function collectionMenuItems(
   return [
     ...extra,
     ...(extra.length ? [{ kind: "divider" } as MenuItem] : []),
-    { label: "Open", icon: icons.folder, onSelect: () => navigate(`/collections/${collection.id}`) },
+    { label: "Open", icon: icons.open, onSelect: () => navigate(`/collections/${collection.id}`) },
     { label: "Show in the Library", icon: icons.library, onSelect: () => navigate(`/library?collection_id=${collection.id}`) },
     { kind: "divider" },
     {
@@ -112,7 +112,7 @@ export function collectionMenuItems(
     },
     {
       label: "What goes in it…",
-      icon: icons.list,
+      icon: icons.note,
       onSelect: async () => {
         const about = await ask.text({
           title: `What goes in “${collection.name}”?`,
@@ -123,7 +123,7 @@ export function collectionMenuItems(
         if (about !== null) change({ description: about }, "Saved.");
       },
     },
-    { kind: "colors", label: "Colour", value: collection.color, onPick: (color) => change({ color }) },
+    { kind: "colors", label: "Colour", value: collection.color, onPick: (color) => change(color ? { color } : { clear_color: true }) },
     {
       kind: "panel",
       label: "Icon…",
@@ -217,7 +217,7 @@ export function tagMenuItems(tag: Tag, { all, ask, extra = [] }: { all: Tag[]; a
         if (name && name !== tag.name) run(() => organizeApi.changeTag(tag.id, { name }), `Renamed to #${name.replace(/^#/, "").toLowerCase()}.`);
       },
     },
-    { kind: "colors", label: "Colour", value: tag.color, onPick: (color) => run(() => organizeApi.changeTag(tag.id, { color })) },
+    { kind: "colors", label: "Colour", value: tag.color, onPick: (color) => run(() => organizeApi.changeTag(tag.id, { color: color ?? "accent" })) },
     { kind: "divider" },
     { kind: "heading", label: "AI Assistant" },
     assistant("summary", "Summarise these saves", target, empty),

@@ -42,10 +42,9 @@ DEFAULT_KIND_STEPS = {
     "other": "Key details: the main points. Steps: up to 3 useful next actions, or none.",
 }
 
-# my_list: only the user's collections; my_list_plus_ideas: the same, and
-# when nothing fits the AI may suggest a name (shown in Needs review; the
-# user decides whether to make it). The AI never makes collections itself.
-Mode = Literal["my_list", "my_list_plus_ideas"]
+# The AI only ever picks from the user's own collections. (Older versions
+# could also suggest new names; saved settings with that are read as this.)
+Mode = Literal["my_list"]
 MAX_TAGS_PER_VIDEO = 10
 
 
@@ -83,12 +82,13 @@ class SortingSettings(BaseModel):
     # Write notes by themselves as soon as a transcripts job ends (local AI
     # only: a cloud AI costs money, so it always waits to be asked).
     auto_notes: bool = False
-    # 0. When the AI writes a save's notes, does it also file it into a
-    #    collection? Off: you organise by hand (rules and linked platform
-    #    collections still apply), and "AI sort" only runs when you press it.
-    auto_sort: bool = True
+    # 0. When the AI writes a save's notes, does it also put it in the
+    #    collection that fits best? Off (the default): its pick is only a
+    #    suggestion, shown in Unsorted for you to accept or change. Your own
+    #    rules and linked platform collections apply either way.
+    auto_sort: bool = False
     # 1. Where items go (see Mode).
-    mode: Mode = "my_list_plus_ideas"
+    mode: Mode = "my_list"
     # 2. The names of the platform collections a save was in (TikTok,
     #    Instagram, ...): shown to the AI as a hint, or not. Linking them to
     #    the app's collections is done on the Collections screen.
@@ -97,14 +97,13 @@ class SortingSettings(BaseModel):
     max_collections: int = Field(default=2, ge=1, le=3)
     # 4. The user's own rules, checked before the AI.
     rules: list[Rule] = Field(default_factory=list, max_length=200)
-    # 5. Below this certainty an item waits in "Needs review" instead. The AI
+    # 5. With auto_sort on, picks below this certainty stay in Unsorted as a
+    #    suggestion instead of being filed. The AI
     #    rates fits clear 0.95 / likely 0.75 / maybe 0.5 / guess 0.25, so
     #    0.6 = file "clear" and "likely" ones, ask about "maybe" and "guess".
     review_below: float = Field(default=0.6, ge=0.0, le=1.0)
     # 6. What each kind of video turns into.
     kind_steps: dict[str, str] = Field(default_factory=lambda: dict(DEFAULT_KIND_STEPS))
-    # 8. When an item counts as "safe to unsave" on the platform.
-    safe_to_unsave: Literal["processed", "done", "manual"] = "processed"
     # New collections the AI makes (or ideas you approve) go in this folder.
     # Empty: at the top of the sidebar.
     ai_folder: str = Field(default="", max_length=80)
@@ -115,25 +114,23 @@ class SortingSettings(BaseModel):
     look_at_pictures: bool = True
 
     # Tags
-    # Does the AI tag a save when it writes its notes? Off: you tag by hand
-    # (your rules still add theirs), and "AI tags" only runs when you press it.
-    auto_tag: bool = True
+    # Does the AI tag a save when it writes its notes? Off (the default): its
+    # tags are suggestions you accept with one click. Your rules' tags are
+    # added either way.
+    auto_tag: bool = False
     # How many tags the AI writes for each video (0 = none).
     tags_per_video: int = Field(default=6, ge=0, le=MAX_TAGS_PER_VIDEO)
     # free: any words; prefer_mine: use my tags when they fit, others too;
     # only_mine: only tags from my list.
     tag_mode: Literal["free", "prefer_mine", "only_mine"] = "free"
     my_tags: list[str] = Field(default_factory=list, max_length=300)
-    # Saves with notes that aren't in any collection get this tag, so they're
-    # easy to find. Empty = off.
-    no_collection_tag: str = Field(default="unsorted", max_length=40)
     # 7. Duplicates across platforms are kept as separate items for now
     #    (only TikTok has been imported); not a setting yet.
 
     @field_validator("mode", mode="before")
     @classmethod
     def _old_mode(cls, value: object) -> object:
-        return "my_list_plus_ideas" if value == "ai_decides" else value
+        return "my_list"
 
     @field_validator("platform_collections", mode="before")
     @classmethod
@@ -154,11 +151,6 @@ class SortingSettings(BaseModel):
             if cleaned and cleaned not in out:
                 out.append(cleaned)
         return out
-
-    @field_validator("no_collection_tag")
-    @classmethod
-    def _clean_auto_tag(cls, value: str) -> str:
-        return " ".join(value.strip().lstrip("#").split()).lower()
 
     @field_validator("kind_steps")
     @classmethod

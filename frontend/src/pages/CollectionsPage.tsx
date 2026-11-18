@@ -1,19 +1,19 @@
-// Collections (#/collections, #/collections/12, #/collections/review,
-// #/collections/unsorted, #/collections/links).
+// Collections (#/collections, #/collections/12, #/collections/unsorted,
+// #/collections/links).
 //
 // Collections work like folders: they sit in spaces (the tabs at the top) and
 // inside each other. Folders are always shown first; click one to open it,
 // like in Windows Explorer, with the path above to go back. Tick the boxes
 // (or Ctrl / Shift click) to pick several collections or saves and move them
 // together; drag a collection onto another to put it inside; right-click for
-// everything else. Needs review and Not in a collection are tabs at the end
-// of the spaces row. The three ways to organise (AI, by hand, from your
-// platforms) fold away behind the Organise button at the top.
+// everything else. Unsorted (saves in no collection, with the AI's suggestion
+// to accept) is a tab at the end of the spaces row. Organising by hand and
+// bringing collections over from your platform fold away behind the
+// Organise button. The AI's own work is all on the Sort page.
 import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEvent, type CSSProperties, type MouseEvent, type ReactNode } from "react";
 
 import { useContextMenu, type MenuItem } from "../components/ContextMenu";
 import { useDialog, type Ask } from "../components/Dialog";
-import JobCard from "../components/JobCard";
 import { toast } from "../components/Toasts";
 import { icons } from "../components/icons";
 import { Button, Notice, inputClass } from "../components/ui";
@@ -37,7 +37,7 @@ import {
   type ItemsDrag,
 } from "../features/organize/organizeApi";
 import ItemCard from "../features/sorting/ItemCard";
-import ReviewActions from "../features/sorting/ReviewActions";
+import Unsorted from "../features/sorting/Unsorted";
 import {
   COLLECTION_LIMIT,
   COLLECTIONS_PER_SAVE,
@@ -45,24 +45,22 @@ import {
   type Collection,
   type CollectionsOverview,
   type ItemCard as Item,
-  type NotesOverview,
   type Space,
   type View,
 } from "../features/sorting/sortingApi";
 import { errorCode, errorText } from "../lib/api";
-import { isActive, onJobUpdate, useJobs, type Job } from "../lib/jobs";
+import { isActive, onJobUpdate } from "../lib/jobs";
 import { navigate, useRoute } from "../lib/router";
 import { Tip } from "../lib/tips";
 
-type Pending = { message: string; go: () => void };
 type Selection = View | { type: "links" } | { type: "overview" };
 
 const AI_JOBS = ["notes", "sort", "tags"];
 
 function selectionFrom(selection: string | null): Selection {
   if (selection && /^\d+$/.test(selection)) return { type: "collection", id: Number(selection) };
-  if (selection === "review" || selection === "unsorted" || selection === "all" || selection === "links")
-    return { type: selection };
+  if (selection === "review") return { type: "unsorted" }; // the old Needs review
+  if (selection === "unsorted" || selection === "all" || selection === "links") return { type: selection };
   return { type: "overview" };
 }
 
@@ -86,16 +84,11 @@ function pickFrom(order: number[], picked: number[], last: number | null, id: nu
 }
 
 export default function CollectionsPage({ selection = null }: { selection?: string | null }) {
-  const jobs = useJobs();
   const route = useRoute();
   const [overview, setOverview] = useState<CollectionsOverview | null>(null);
-  const [notes, setNotes] = useState<NotesOverview | null>(null);
-  const [items, setItems] = useState<Item[]>([]); // Needs review / Not in a collection
+  const [items, setItems] = useState<Item[]>([]); // All with notes
   const [saves, setSaves] = useState<{ total: number; items: LibraryItem[] } | null>(null); // the open collection's own saves
-  const [started, setStarted] = useState<Job | null>(null);
   const [problem, setProblem] = useState<{ text: string; code: string | null } | null>(null);
-  const [pending, setPending] = useState<Pending | null>(null);
-  const [keepManual, setKeepManual] = useState(true);
   const [newName, setNewName] = useState("");
   const [adding, setAdding] = useState(false);
   const [find, setFind] = useState("");
@@ -118,12 +111,11 @@ export default function CollectionsPage({ selection = null }: { selection?: stri
 
   const refreshLists = useCallback(() => {
     sortingApi.collections().then(setOverview).catch((e) => setProblem({ text: errorText(e), code: null }));
-    sortingApi.overview().then(setNotes).catch(() => undefined);
   }, []);
   useEffect(refreshLists, [refreshLists]);
 
   const refreshItems = useCallback(() => {
-    if (viewKey === "review" || viewKey === "unsorted" || viewKey === "all") {
+    if (viewKey === "all") {
       sortingApi.library({ type: viewKey } as View).then(setItems).catch((e) => setProblem({ text: errorText(e), code: null }));
     } else if (openId !== null) {
       libraryApi
@@ -164,25 +156,6 @@ export default function CollectionsPage({ selection = null }: { selection?: stri
     });
   }, [refreshLists, refreshItems]);
 
-  const aiJobs = jobs.filter((job) => AI_JOBS.includes(job.kind));
-  const running = aiJobs.find(isActive);
-  const currentId = running?.id ?? Math.max(started?.id ?? 0, aiJobs[0]?.id ?? 0);
-  const current = aiJobs.find((job) => job.id === currentId) ?? started ?? undefined;
-  const busy = running !== undefined;
-
-  async function run(task: () => Promise<Job>, retry: () => void) {
-    setProblem(null);
-    setPending(null);
-    try {
-      setStarted(await task());
-    } catch (e) {
-      if (errorCode(e) === "confirm_cost") setPending({ message: errorText(e), go: retry });
-      else setProblem({ text: errorText(e), code: errorCode(e) });
-    }
-  }
-  const startSort = (which: "all" | "review" | "unsorted", confirm = false) =>
-    run(() => sortingApi.resort(which, keepManual, confirm), () => startSort(which, true));
-
   async function act(task: () => Promise<unknown>) {
     setProblem(null);
     try {
@@ -211,7 +184,7 @@ export default function CollectionsPage({ selection = null }: { selection?: stri
     : folders;
   const path: Collection[] = [];
   for (let at = opened; at; at = collections.find((c) => c.id === at?.parent_id)) path.unshift(at);
-  const waiting = notes?.counts.waiting ?? 0;
+  const waiting = counts?.waiting ?? 0;
   const explorer = view.type === "overview" || view.type === "collection" || view.type === "links";
   const spaceHref = (id: number | undefined) => `/collections${id && id !== spaces[0]?.id ? `?space=${id}` : ""}`;
   const upHref = path.length > 1 ? `/collections/${path[path.length - 2].id}` : spaceHref(space?.id);
@@ -374,42 +347,22 @@ export default function CollectionsPage({ selection = null }: { selection?: stri
           act={act}
           hrefOf={spaceHref}
           onDrop={(event, target) => dropOn(event, { space: target })}
-          view={view.type === "review" || view.type === "unsorted" ? view.type : null}
-          review={counts?.review ?? 0}
+          view={view.type === "unsorted" ? view.type : null}
           unsorted={counts?.unsorted ?? 0}
         />
 
         {organise && (
           <div className="kw-rise">
             <OrganiseChoices
-              collections={collections}
               counts={counts}
-              notes={notes}
-              busy={busy}
               spaceId={space?.id}
               spaceName={space?.name ?? "this space"}
               inside={opened}
               initial={view.type === "links" ? "platforms" : null}
-              keepManual={keepManual}
-              onKeepManual={setKeepManual}
-              onSort={startSort}
             />
           </div>
         )}
 
-        {pending && (
-          <Notice tone="warning" onClose={() => setPending(null)}>
-            <p>{pending.message}</p>
-            <div className="mt-3 flex gap-2">
-              <Button size="sm" onClick={pending.go}>
-                Yes, go ahead
-              </Button>
-              <Button size="sm" variant="secondary" onClick={() => setPending(null)}>
-                Cancel
-              </Button>
-            </div>
-          </Notice>
-        )}
         {problem && (
           <Notice tone="error" onClose={() => setProblem(null)}>
             <p>{problem.text}</p>
@@ -422,7 +375,6 @@ export default function CollectionsPage({ selection = null }: { selection?: stri
             )}
           </Notice>
         )}
-        {current && <JobCard job={current} name={current.kind === "sort" ? "AI sort" : current.kind === "tags" ? "AI tags job" : "AI notes job"} />}
 
         {explorer && (
           <section className="space-y-4" aria-label="Collections in this space">
@@ -620,7 +572,7 @@ export default function CollectionsPage({ selection = null }: { selection?: stri
               {!wanted && opened && saves && saves.items.length === 0 && folders.length === 0 && (
                 <p className="rounded-2xl border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700">
                   Nothing in here yet. Drag saves onto this collection, right-click a save and choose “Collections…”, or
-                  let the AI sort.
+                  accept the AI's suggestions in Unsorted.
                 </p>
               )}
             </div>
@@ -644,9 +596,26 @@ export default function CollectionsPage({ selection = null }: { selection?: stri
           </section>
         )}
 
-        {(view.type === "review" || view.type === "unsorted" || view.type === "all") && (
+        {view.type === "unsorted" && (
           <section className="space-y-4">
-            <ViewHeader view={view} count={items.length} busy={busy} onSort={() => startSort(view.type === "review" ? "review" : "unsorted")} />
+            <div>
+              <h2 className="text-lg font-semibold tracking-tight">Unsorted</h2>
+              <p className="kw-tip text-sm text-zinc-500 dark:text-zinc-400">
+                Saves with notes that aren't in a collection yet. Accept where the AI thinks each one goes, or choose
+                another. (The AI suggests from the{" "}
+                <a href="#/transcripts" className="underline">
+                  Sort
+                </a>{" "}
+                page.)
+              </p>
+            </div>
+            <Unsorted />
+          </section>
+        )}
+
+        {view.type === "all" && (
+          <section className="space-y-4">
+            <ViewHeader count={items.length} />
             {items.length === 0 ? (
               <EmptyView view={view} waiting={waiting} />
             ) : (
@@ -660,11 +629,6 @@ export default function CollectionsPage({ selection = null }: { selection?: stri
                       onMove={(toId) => act(() => sortingApi.move(item.id, null, toId))}
                       onRemove={(collectionId) => act(() => sortingApi.removeFrom(item.id, collectionId))}
                       onChange={(card) => setItems((old) => old.map((o) => (o.id === card.id ? card : o)))}
-                      actions={
-                        item.needs_review ? (
-                          <ReviewActions item={item} room={roomHere} onAccept={(choice) => act(() => sortingApi.accept(item.id, choice))} />
-                        ) : undefined
-                      }
                     />
                   </li>
                 ))}
@@ -714,8 +678,8 @@ const TAB = "-mb-px flex items-center gap-2 rounded-t-lg border-b-2 px-4 py-2 te
 const TAB_ON = "border-indigo-600 text-zinc-900 dark:border-indigo-400 dark:text-white";
 const TAB_OFF = "border-transparent text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white";
 
-/** Needs review / Not in a collection: tabs like the spaces, at the end of
- * the row. Needs review gets an accent count when something is waiting. */
+/** Unsorted: a tab like the spaces, at the end of the row, with an accent
+ * count when something is waiting. */
 function ViewTab({ href, active, count, alert = false, children }: { href: string; active: boolean; count: number; alert?: boolean; children: ReactNode }) {
   return (
     <a href={href} role="tab" aria-selected={active} className={`${TAB} ${active ? TAB_ON : TAB_OFF}`}>
@@ -737,11 +701,9 @@ function SpaceTabs({
   hrefOf,
   onDrop,
   view,
-  review,
   unsorted,
 }: {
-  view: "review" | "unsorted" | null;
-  review: number;
+  view: "unsorted" | null;
   unsorted: number;
   spaces: Space[];
   current: number | undefined;
@@ -774,7 +736,7 @@ function SpaceTabs({
           if (name && name !== space.name) act(() => organizeApi.changeSpace(space.id, { name }));
         },
       },
-      { kind: "colors", label: "Colour", value: space.color, onPick: (color) => act(() => organizeApi.changeSpace(space.id, { color })) },
+      { kind: "colors", label: "Colour", value: space.color, onPick: (color) => act(() => organizeApi.changeSpace(space.id, color ? { color } : { clear_color: true })) },
       { kind: "divider" },
       { label: "Move left", icon: icons.up, disabled: index === 0, onSelect: () => act(() => organizeApi.changeSpace(space.id, { index: index - 1 })) },
       { label: "Move right", icon: icons.down, disabled: index === spaces.length - 1, onSelect: () => act(() => organizeApi.changeSpace(space.id, { index: index + 1 })) },
@@ -846,11 +808,8 @@ function SpaceTabs({
         {icons.plus}
       </button>
       <span className="ml-auto" />
-      <ViewTab href="#/collections/review" active={view === "review"} count={review} alert={review > 0}>
-        Needs review
-      </ViewTab>
-      <ViewTab href="#/collections/unsorted" active={view === "unsorted"} count={unsorted}>
-        Not in a collection
+      <ViewTab href="#/collections/unsorted" active={view === "unsorted"} count={unsorted} alert={unsorted > 0}>
+        Unsorted
       </ViewTab>
       {menu}
     </div>
@@ -941,7 +900,7 @@ function FolderTile({
           <h3 className="truncate text-[15px] font-semibold tracking-tight" title={collection.path}>
             {collection.name}
           </h3>
-          <p className="mt-0.5 truncate text-xs text-zinc-500 dark:text-zinc-400">
+          <p className="kw-tip mt-0.5 truncate text-xs text-zinc-500 dark:text-zinc-400">
             {showPath && collection.path !== collection.name
               ? collection.path.slice(0, collection.path.lastIndexOf(" / "))
               : `${collection.count.toLocaleString()} save${collection.count === 1 ? "" : "s"}${inside > 0 ? ` · ${inside.toLocaleString()} inside` : collection.has_children ? " · has collections" : ""}`}
@@ -957,45 +916,21 @@ function FolderTile({
   );
 }
 
-function ViewHeader({
-  view,
-  count,
-  busy,
-  onSort,
-}: {
-  view: { type: "review" | "unsorted" | "all" };
-  count: number;
-  busy: boolean;
-  onSort: () => void;
-}) {
-  const titles = { review: "Needs review", unsorted: "Not in a collection", all: "All with notes" };
+function ViewHeader({ count }: { count: number }) {
   return (
     <div className="flex flex-wrap items-center gap-3">
-      <h2 className="text-lg font-semibold tracking-tight">{titles[view.type]}</h2>
+      <h2 className="text-lg font-semibold tracking-tight">All with notes</h2>
       <span className="text-sm text-zinc-500">{count.toLocaleString()}</span>
-      {view.type === "review" && (
-        <span className="text-sm text-zinc-500 dark:text-zinc-400">The AI wasn't sure where these go. Pick for it.</span>
-      )}
-      {view.type !== "all" && count > 0 && (
-        <Button size="sm" variant="secondary" className="ml-auto" disabled={busy} onClick={onSort}>
-          <span className="h-4 w-4">{icons.sparkle}</span>
-          AI sort these
-        </Button>
-      )}
     </div>
   );
 }
 
 function EmptyView({ view, waiting }: { view: Selection; waiting: number }) {
   const text =
-    view.type === "review"
-      ? "Nothing to review. The AI was sure about everything so far."
-      : view.type === "unsorted"
-        ? "Every save with notes is in a collection."
-        : view.type === "all"
-          ? waiting > 0
-            ? "No notes yet. Start them under “Let the AI organise”."
-            : "No notes yet. Get transcripts first, on the Transcripts screen."
-          : "Nothing here yet. Drag a save onto this collection, use a save's Collection button in the Library, or let AI sort fill it.";
+    view.type === "all"
+      ? waiting > 0
+        ? "No notes yet. Write them on the Sort page."
+        : "No notes yet. Get transcripts first, on the Sort page."
+      : "Nothing here yet. Drag a save onto this collection, use a save's Collection button in the Library, or accept the AI's suggestions in Unsorted.";
   return <p className="rounded-2xl border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700">{text}</p>;
 }

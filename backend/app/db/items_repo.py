@@ -39,6 +39,7 @@ UPDATABLE = {
     "processed_at",
     "sorted_at",
     "deleted_at",
+    "gone_at",
 }
 
 # Item statuses, in the order an item normally moves through them.

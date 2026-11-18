@@ -1,6 +1,7 @@
-// The Keptwise logo: three bookmarks, one behind the other. The front one
-// takes the accent colour; the two behind it stay grey. The same outline is
-// in desktop/logo_art.py (program and taskbar icons).
+// The Keptwise logo: three bookmarks, one behind the other, all in the
+// accent colour (the two behind it fainter), so the whole logo changes with
+// the accent. The same outline is in desktop/logo_art.py (program and
+// taskbar icons, which stay plain white).
 import { useId } from "react";
 
 // The front bookmark, in its own units.
@@ -21,7 +22,11 @@ export default function Logo({ className = "h-8 w-8", mono = false }: { classNam
   const cut = (index: number) => shape(index, { fill: "black", stroke: "black", strokeWidth: GAP * 2, strokeLinejoin: "round" });
   const fills = mono
     ? ["fill-current opacity-40", "fill-current opacity-70", "fill-current"]
-    : ["fill-zinc-300 dark:fill-zinc-700", "fill-zinc-400 dark:fill-[#8b8d91]", "fill-indigo-600 dark:fill-indigo-500"];
+    : [
+        "fill-indigo-600 opacity-30 dark:fill-indigo-500 dark:opacity-35",
+        "fill-indigo-600 opacity-60 dark:fill-indigo-500 dark:opacity-65",
+        "fill-indigo-600 dark:fill-indigo-500",
+      ];
   return (
     <svg viewBox="0 0 640 640" className={className} aria-hidden="true" focusable="false">
       <defs>
@@ -35,8 +40,8 @@ export default function Logo({ className = "h-8 w-8", mono = false }: { classNam
           {cut(2)}
         </mask>
       </defs>
-      {shape(0, { className: fills[0], mask: `url(#${id}-b)` })}
-      {shape(1, { className: fills[1], mask: `url(#${id}-m)` })}
+      {shape(0, { className: `${fills[0]} transition-[fill] duration-300`, mask: `url(#${id}-b)` })}
+      {shape(1, { className: `${fills[1]} transition-[fill] duration-300`, mask: `url(#${id}-m)` })}
       {shape(2, { className: `${fills[2]} transition-[fill] duration-300` })}
     </svg>
   );

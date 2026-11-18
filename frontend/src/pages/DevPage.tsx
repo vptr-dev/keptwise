@@ -42,7 +42,7 @@ export default function DevPage() {
     <div className="mx-auto max-w-3xl space-y-6 p-8">
       <header>
         <h1 className="text-2xl font-semibold">Developer page</h1>
-        <p className="text-sm text-zinc-500">Database numbers and a test background job.</p>
+        <p className="kw-tip text-sm text-zinc-500">Database numbers and a test background job.</p>
       </header>
 
       {error && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">{error}</p>}

@@ -8,7 +8,8 @@ import { Button, inputClass } from "../../components/ui";
 import { navigate } from "../../lib/router";
 import { sortingApi, type Collection } from "../sorting/sortingApi";
 import { IconPicker, readPicture } from "./collectionIcons";
-import { COLOR_DOTS, COLORS, organizeApi, type CollectionChange } from "./organizeApi";
+import { COLOR_DOTS, organizeApi, type CollectionChange } from "./organizeApi";
+import { ColourButton } from "../../components/ColourPicker";
 
 export default function CollectionHeader({
   collection,
@@ -150,17 +151,8 @@ export default function CollectionHeader({
         <div className="space-y-3">
           <div>
             <p className="text-sm font-medium text-zinc-800 dark:text-zinc-200">Colour</p>
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {COLORS.map((color) => (
-                <button
-                  key={color}
-                  type="button"
-                  aria-label={`Colour ${color}`}
-                  aria-pressed={collection.color === color}
-                  onClick={() => change({ color })}
-                  className={`h-5 w-5 rounded-full ${COLOR_DOTS[color]} ${collection.color === color ? "ring-2 ring-zinc-900 ring-offset-1 dark:ring-white dark:ring-offset-zinc-900" : ""}`}
-                />
-              ))}
+            <div className="mt-1.5">
+              <ColourButton value={collection.color} onPick={(color) => change(color ? { color } : { clear_color: true })} />
             </div>
           </div>
           <div>
