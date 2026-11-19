@@ -241,6 +241,7 @@ def merge(conn: sqlite3.Connection, source_id: int, target_id: int) -> None:
         (target_id, source_id),
     )
     conn.execute("UPDATE platform_links SET collection_id = ? WHERE collection_id = ?", (target_id, source_id))
+    conn.execute("UPDATE platform_import_destinations SET collection_id = ? WHERE collection_id = ?", (target_id, source_id))
     delete(conn, source_id)
 
 
@@ -491,11 +492,13 @@ def add_by_user(conn: sqlite3.Connection, item_id: int, collection_id: int) -> N
 
 def add_from_platform(conn: sqlite3.Connection, item_id: int, collection_id: int) -> bool:
     """File a save because of a platform link. Never overrides the user's own
-    choice. True if it was new there. A full save is left as it is."""
-    if count_on(conn, item_id) >= MAX_PER_ITEM:
+    choice. True if the placement is newly backed by platform routing."""
+    if not has_link(conn, item_id, collection_id) and count_on(conn, item_id) >= MAX_PER_ITEM:
         return False
     cursor = conn.execute(
-        "INSERT OR IGNORE INTO item_collections (item_id, collection_id, source) VALUES (?, ?, 'platform')",
+        """INSERT INTO item_collections (item_id, collection_id, source) VALUES (?, ?, 'platform')
+           ON CONFLICT (item_id, collection_id) DO UPDATE SET source = 'platform', confidence = NULL
+           WHERE item_collections.source IN ('ai', 'rule')""",
         (item_id, collection_id),
     )
     if cursor.rowcount:

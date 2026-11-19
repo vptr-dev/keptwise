@@ -67,6 +67,7 @@ class Collector:
         for url, item in self._items.items():
             names = self._collections[url]
             item.platform_collection = ", ".join(names) if names else None
+            item.platform_collections = tuple(names)
             all_names.extend(name for name in names if name not in all_names)
         return ParseResult(self.platform, list(self._items.values()), self.notes, all_names)
 

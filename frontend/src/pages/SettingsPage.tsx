@@ -5,12 +5,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { icons } from "../components/icons";
-import { Card, Notice } from "../components/ui";
+import { Button, Card, Notice } from "../components/ui";
 import type { AiOverview } from "../features/ai/aiApi";
 import AiSettings from "../features/ai/AiSettings";
 import SpeechSettings from "../features/enrich/SpeechSettings";
 import AppearanceSettings from "../features/look/AppearanceSettings";
 import SortingSettings from "../features/sorting/SortingSettings";
+import WorkflowControls from "../features/sorting/WorkflowControls";
 import StorageSettings from "../features/storage/StorageSettings";
 import type { UpdateStatus } from "../features/updates/updatesApi";
 import UpdatesSettings from "../features/updates/UpdatesSettings";
@@ -45,6 +46,7 @@ export default function SettingsPage({
   onLookChange,
   updates,
   onUpdatesChange,
+  onTutorial,
 }: {
   overview: AiOverview | null;
   onAiChange: (overview: AiOverview) => void;
@@ -53,14 +55,35 @@ export default function SettingsPage({
   onLookChange?: (change: Partial<Look>) => void;
   updates?: UpdateStatus | null;
   onUpdatesChange?: (status: UpdateStatus) => void;
+  onTutorial?: () => void;
 }) {
   const route = useRoute();
   const [query, setQuery] = useState("");
-  const [current, setCurrent] = useState<string>("ai");
+  const [current, setCurrent] = useState<string>("workflow");
   const scroller = useRef<HTMLDivElement>(null);
 
   const sections: Section[] = useMemo(() => {
     const list: Section[] = [
+      {
+        id: "workflow",
+        title: "Workflow",
+        blurb: "Choose what Keptwise does automatically and how imports are filed.",
+        settings: ["Put into collections automatically", "Add tags automatically", "Start notes after transcripts", "Import destinations", "Collection rules and tag choices"],
+        extra: ["manual", "suggestions", "review", "automation", "sorting", "TikTok", "organise", "organize"],
+        render: () => (
+          <Card>
+            <h2 className="text-lg font-medium">Workflow</h2>
+            <p className="mb-4 mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+              These choices apply to future sorting. Your import destinations and rules still apply, and you can organise saves by hand.
+            </p>
+            <WorkflowControls cloud={overview?.current_kind === "cloud"} />
+            <div className="mt-5 flex flex-wrap gap-x-5 gap-y-2 border-t border-zinc-100 pt-4 text-sm dark:border-zinc-800">
+              <a href="#/collections/links" className="underline">Choose where imports go</a>
+              <a href="#/transcripts?options=1" className="underline">Collection rules and tag choices</a>
+            </div>
+          </Card>
+        ),
+      },
       {
         id: "ai",
         title: "AI",
@@ -78,13 +101,34 @@ export default function SettingsPage({
         ),
       },
     ];
+    if (onTutorial) {
+      list.unshift({
+        id: "getting-started",
+        title: "Getting started",
+        blurb: "Learn how to navigate Keptwise.",
+        settings: ["Guided tutorial"],
+        extra: ["tour", "help", "guide", "onboarding"],
+        render: () => (
+          <Card>
+            <h2 className="text-lg font-medium">Getting started</h2>
+            <p className="mb-4 mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+              Walk through importing, organising and finding your saves. Jump to any chapter when you want a refresher.
+            </p>
+            <Button variant="secondary" onClick={onTutorial}>
+              <span className="h-4 w-4">{icons.bulb}</span>
+              Open guided tutorial
+            </Button>
+          </Card>
+        ),
+      });
+    }
     if (look && onLookChange) {
       list.push({
         id: "appearance",
         title: "Appearance",
         blurb: "Theme, colours, text size, sidebar and cards.",
         settings: ["Theme", "Dark mode", "Light mode", "Accent colour", "Text size", "Open Keptwise on", "Your name", "Slim sidebar", "Library pictures", "Quick buttons on saves", "Sidebar pages and order", "Tips"],
-        extra: ["colour", "color", "font", "start page", "hide page", "reorder"],
+        extra: ["colour", "color", "font", "start page", "display name", "personalise", "personalize", "hide page", "reorder"],
         render: () => <AppearanceSettings look={look} onChange={onLookChange} />,
       });
     }
@@ -92,11 +136,10 @@ export default function SettingsPage({
       {
         id: "sorting",
         title: "Notes",
-        blurb: "What the AI writes for each save. Sorting and tagging are chosen on the Collections and Tags pages.",
+        blurb: "Choose what the AI writes for each save.",
         settings: [
           "Look at the video's pictures",
           "What each kind of video turns into",
-          "Safe to unsave on the platform",
         ],
         extra: ["unsave", "steps", "recipe", "kind", "notes", "pictures", "vision", "images"],
         render: () => <SortingSettings />,
@@ -113,7 +156,7 @@ export default function SettingsPage({
         id: "storage",
         title: "Storage",
         blurb: "Where your data lives and how much room it takes.",
-        settings: ["Data folder", "Space used", "Free up space", "Open the data folder"],
+        settings: ["Data folder", "Space used", "Free up space", "Clear my saves", "Clear backups"],
         extra: ["disk", "folder", "delete", "backup", "space", "files"],
         render: () => <StorageSettings />,
       },
@@ -129,7 +172,7 @@ export default function SettingsPage({
       });
     }
     return list;
-  }, [overview, onAiChange, look, onLookChange, updates, onUpdatesChange]);
+  }, [overview, onAiChange, look, onLookChange, updates, onUpdatesChange, onTutorial]);
 
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const hits = new Map(sections.map((s) => [s.id, matches(s, words)]));

@@ -267,3 +267,12 @@ def test_a_look_saved_before_the_default_accent_moves_to_it_once(api: TestClient
     # A colour picked afterwards stays.
     api.put("/api/ui", json=look | {"accent": "teal"})
     assert api.get("/api/ui").json()["accent"] == "teal"
+
+
+def test_tutorial_preference_defaults_for_existing_libraries_and_is_saved(api: TestClient) -> None:
+    saved = api.put("/api/ui", json={"name": "Sam", "theme": "dark", "welcomed": True}).json()
+    assert saved["tutorial_seen"] is False
+    api.put("/api/ui", json={**saved, "tutorial_seen": True})
+    after = api.get("/api/ui").json()
+    assert after["tutorial_seen"] is True
+    assert after["name"] == "Sam" and after["theme"] == "dark"

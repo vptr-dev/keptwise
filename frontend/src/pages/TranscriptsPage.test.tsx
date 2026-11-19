@@ -161,7 +161,7 @@ const pipeline = (extra: Record<string, unknown> = {}) => ({
   "GET /api/jobs": [],
   "GET /api/notes/overview": notesOverview(230),
   "GET /api/sorting/settings": { settings: sortSettings, kinds: [] },
-  "PUT /api/sorting/settings": (body: unknown) => ({ settings: body, kinds: [] }),
+  "PATCH /api/sorting/settings": (body: unknown) => ({ settings: { ...sortSettings, ...(body as object) }, kinds: [] }),
   "GET /api/library?view=unsorted": [unsure],
   "GET /api/collections": { collections: [music, gym], spaces: [{ id: 1, name: "My saves", color: null, position: 1, collections: 2 }], counts: {}, limit: 50 },
   ...extra,
@@ -184,7 +184,7 @@ test("notes are written on the same page: next 200, live progress, and by themse
   const auto = screen.getByRole("switch", { name: /Write notes by themselves when transcripts finish/ });
   expect(auto).not.toBeChecked();
   fireEvent.click(auto);
-  await waitFor(() => expect((calls.find((c) => c.method === "PUT")?.body as { auto_notes: boolean }).auto_notes).toBe(true));
+  await waitFor(() => expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({ auto_notes: true }));
 });
 
 test("the AI only suggests unless switched on: two checkboxes for collections and tags", async () => {
@@ -196,9 +196,9 @@ test("the AI only suggests unless switched on: two checkboxes for collections an
   await waitFor(() => expect(collections).toBeEnabled());
   expect(collections).not.toBeChecked();
   expect(tags).not.toBeChecked();
-  expect(screen.getByText(/every save waits in Unsorted with the AI's suggestion/)).toBeInTheDocument();
+  expect(screen.getByText(/Other matches stay suggestions/)).toBeInTheDocument();
   fireEvent.click(collections);
-  await waitFor(() => expect((calls.find((c) => c.method === "PUT")?.body as { auto_sort: boolean }).auto_sort).toBe(true));
+  await waitFor(() => expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({ auto_sort: true }));
 });
 
 test("a cloud AI asks before notes spend money, does 50 at most, and never starts by itself", async () => {

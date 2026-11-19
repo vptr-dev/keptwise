@@ -60,13 +60,13 @@ export function useJobs(): Job[] {
   const [jobs, setJobs] = useState<Job[]>([]);
   useEffect(() => {
     let active = true;
+    const stop = onJobUpdate((job) => setJobs((current) => mergeJobs([job], current)));
     api
       .get<Job[]>("/api/jobs")
       .then((list) => {
-        if (active) setJobs((current) => mergeJobs(list, current));
+        if (active) setJobs((current) => mergeJobs(current, list));
       })
       .catch(() => undefined);
-    const stop = onJobUpdate((job) => setJobs((current) => mergeJobs([job], current)));
     return () => {
       active = false;
       stop();

@@ -16,10 +16,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from app.ai.base import AIError
+from app.ai.base import AIError, Provider
 from app.ai.sorting import collections, platform_links, tags
-from app.ai.sorting.job import now_iso
-from app.ai.sorting.settings import DEFAULT_KIND_STEPS, KIND_LABELS, KINDS, SortingSettings, load, save
+from app.ai.sorting.job import CLOUD_BATCH_LIMIT, now_iso
+from app.ai.sorting.settings import DEFAULT_KIND_STEPS, KIND_LABELS, KINDS, SortingSettings, load, save, update
 from app.db.items_repo import decode_json_list
 from app.importers import PLATFORM_NAMES
 from app.library import scope
@@ -27,8 +27,6 @@ from app.services import AppServices, services
 
 router = APIRouter(prefix="/api")
 
-# Cloud AI costs money: at most this many videos per batch (the cost guard).
-CLOUD_BATCH_LIMIT = 50
 PAGE_LIMIT = 200
 
 
@@ -37,8 +35,12 @@ PAGE_LIMIT = 200
 
 @router.get("/sorting/settings")
 def get_settings(svc: AppServices = Depends(services)) -> dict[str, Any]:
+    return _settings_response(load(svc.settings).model_dump())
+
+
+def _settings_response(settings: dict[str, Any]) -> dict[str, Any]:
     return {
-        "settings": load(svc.settings).model_dump(),
+        "settings": settings,
         "kinds": [{"id": kind, "label": KIND_LABELS[kind], "default": DEFAULT_KIND_STEPS[kind]} for kind in KINDS],
     }
 
@@ -46,7 +48,15 @@ def get_settings(svc: AppServices = Depends(services)) -> dict[str, Any]:
 @router.put("/sorting/settings")
 def put_settings(body: SortingSettings, svc: AppServices = Depends(services)) -> dict[str, Any]:
     save(svc.settings, body)
-    return get_settings(svc)
+    return _settings_response(body.model_dump())
+
+
+@router.patch("/sorting/settings")
+def patch_settings(changes: dict[str, Any], svc: AppServices = Depends(services)) -> dict[str, Any]:
+    try:
+        return _settings_response(update(svc.settings, changes))
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail="Those sorting settings are invalid.") from error
 
 
 # ---------- collections ----------
@@ -413,7 +423,7 @@ def card_from_row(
         "platform_collection": item["platform_collection"],
         "done": bool(item["done"]),
         "started_at": item["started_at"],
-        "safe_to_unsave": bool(item["safe_to_unsave"]),
+        "safe_to_unsave": bool(item["safe_to_unsave"] or item["deleted_at"]),
         "unsaved": bool(item["unsaved"]),
         "unsaved_at": item.get("unsaved_at"),
         "deleted": bool(item.get("deleted_at")),
@@ -625,13 +635,13 @@ def notes_overview(svc: AppServices = Depends(services)) -> dict[str, Any]:
     }
 
 
-def _ready_or_error(svc: AppServices, requests: int, confirmed: bool) -> JSONResponse | None:
+def _ready_or_error(svc: AppServices, provider: Provider, requests: int, confirmed: bool) -> JSONResponse | None:
     """Check the AI can run; for paid cloud AI, ask the user to confirm the cost first."""
     try:
-        svc.ai.check_ready()
+        svc.ai.check_ready(provider)
     except AIError as error:
         return JSONResponse(status_code=400, content={"detail": str(error), "code": error.code})
-    if svc.ai.is_cloud() and not confirmed:
+    if provider.info.kind == "cloud" and not confirmed:
         return JSONResponse(
             status_code=409,
             content={
@@ -639,7 +649,7 @@ def _ready_or_error(svc: AppServices, requests: int, confirmed: bool) -> JSONRes
                 "requests": requests,
                 "detail": (
                     f"This sends about {requests:,} request{'s' if requests != 1 else ''} to "
-                    f"{svc.ai.current_label()}, which your API key pays for (a few more if an answer needs fixing). "
+                    f"{provider.info.label} · {provider.model}, which your API key pays for (a few more if an answer needs fixing). "
                     "Continue?"
                 ),
             },
@@ -649,8 +659,9 @@ def _ready_or_error(svc: AppServices, requests: int, confirmed: bool) -> JSONRes
 
 @router.post("/notes/start", response_model=None)
 def start_notes(body: StartBody, svc: AppServices = Depends(services)) -> dict[str, Any] | JSONResponse:
+    provider = svc.ai.provider()
     limit = body.count
-    if svc.ai.is_cloud():
+    if provider.info.kind == "cloud":
         limit = min(limit or CLOUD_BATCH_LIMIT, CLOUD_BATCH_LIMIT)
     scoped, params = scope.where(scope.current(svc.settings), "items")
     with svc.db.connect() as conn:
@@ -664,12 +675,19 @@ def start_notes(body: StartBody, svc: AppServices = Depends(services)) -> dict[s
             status_code=400,
             detail="No videos are waiting for notes. Get their transcripts first (Sort page).",
         )
-    problem = _ready_or_error(svc, len(ids), body.confirm_cost)
+    problem = _ready_or_error(svc, provider, len(ids), body.confirm_cost)
     if problem:
         return problem
     title = f"AI notes for {len(ids):,} video{'s' if len(ids) != 1 else ''}"
-    job_id = svc.runner.submit("notes", title, {"item_ids": ids})
+    job_id = svc.runner.submit("notes", title, _batch_params(provider, ids))
     return svc.jobs.get(job_id) or {}
+
+
+def _batch_params(provider: Provider, ids: list[int]) -> dict[str, Any]:
+    params: dict[str, Any] = {"item_ids": ids, "provider_id": provider.info.id}
+    if provider.info.kind == "cloud":
+        params["cloud_model"] = provider.model
+    return params
 
 
 def _pick_ids(svc: AppServices, which: str, item_ids: list[int] | None) -> list[int]:
@@ -703,13 +721,14 @@ def resort(body: ResortBody, svc: AppServices = Depends(services)) -> dict[str, 
     ids = _pick_ids(svc, body.which, body.item_ids)
     if not ids:
         raise HTTPException(status_code=400, detail="There's nothing to sort yet: the AI sorts saves once they have notes.")
-    if svc.ai.is_cloud():
+    provider = svc.ai.provider()
+    if provider.info.kind == "cloud":
         ids = ids[:CLOUD_BATCH_LIMIT]
-    problem = _ready_or_error(svc, len(ids), body.confirm_cost)
+    problem = _ready_or_error(svc, provider, len(ids), body.confirm_cost)
     if problem:
         return problem
     title = f"AI sort for {len(ids):,} video{'s' if len(ids) != 1 else ''}"
-    params = {"item_ids": ids, "keep_manual": body.keep_manual, "since": now_iso()}
+    params = _batch_params(provider, ids) | {"keep_manual": body.keep_manual, "since": now_iso()}
     job_id = svc.runner.submit("sort", title, params)
     return svc.jobs.get(job_id) or {}
 
@@ -730,12 +749,13 @@ def ai_tags(body: TagsBody, svc: AppServices = Depends(services)) -> dict[str, A
             status_code=400,
             detail="Nothing to tag: the AI suggests tags for saves once they have notes (Sort page).",
         )
-    if svc.ai.is_cloud():
+    provider = svc.ai.provider()
+    if provider.info.kind == "cloud":
         ids = ids[:CLOUD_BATCH_LIMIT]
-    problem = _ready_or_error(svc, len(ids), body.confirm_cost)
+    problem = _ready_or_error(svc, provider, len(ids), body.confirm_cost)
     if problem:
         return problem
-    job_id = svc.runner.submit("tags", f"AI tags for {len(ids):,} video{'s' if len(ids) != 1 else ''}", {"item_ids": ids})
+    job_id = svc.runner.submit("tags", f"AI tags for {len(ids):,} video{'s' if len(ids) != 1 else ''}", _batch_params(provider, ids))
     return svc.jobs.get(job_id) or {}
 
 
@@ -766,14 +786,31 @@ class ApplyBody(BaseModel):
     name: str = Field(min_length=1, max_length=200)
 
 
+class ImportDestinationBody(BaseModel):
+    platform: str
+    collection_id: int | None
+
+
 @router.get("/platform-collections")
 def list_platform_collections(space_id: int | None = None, svc: AppServices = Depends(services)) -> dict[str, Any]:
     collections.seed_once(svc.db, svc.settings)
     with svc.db.connect() as conn:
         return {
             "links": platform_links.overview(conn, scope.current(svc.settings)),
+            "import_destinations": platform_links.import_destinations(conn),
             "room_left": collections.room_left(conn, space_id),
         }
+
+
+@router.put("/platform-collections/default")
+def change_import_destination(body: ImportDestinationBody, svc: AppServices = Depends(services)) -> dict[str, Any]:
+    if body.platform not in PLATFORM_NAMES:
+        raise HTTPException(status_code=400, detail="Unknown platform.")
+    with svc.db.connect() as conn:
+        if body.collection_id is not None:
+            require_collection(conn, body.collection_id)
+        platform_links.set_import_destination(conn, body.platform, body.collection_id)
+        return {"import_destinations": platform_links.import_destinations(conn)}
 
 
 @router.post("/platform-collections/transfer")

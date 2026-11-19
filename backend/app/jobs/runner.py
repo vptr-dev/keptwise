@@ -20,11 +20,12 @@ import queue
 import threading
 import time
 import traceback
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from app.jobs.events import EventHub
-from app.jobs.repo import FINISHED, JobsRepo
+from app.jobs.repo import JobsRepo
 
 Handler = Callable[["JobContext"], dict[str, Any] | None]
 
@@ -34,6 +35,10 @@ PROGRESS_INTERVAL = 0.2
 
 class JobCancelled(Exception):
     """Raised inside a handler by ctx.check() when the user cancels."""
+
+
+class JobsBusy(Exception):
+    """A job is queued or still using the library."""
 
 
 class _Control:
@@ -104,6 +109,8 @@ class JobRunner:
         self._queue: queue.Queue[int | None] = queue.Queue()
         self._controls: dict[int, _Control] = {}
         self._lock = threading.Lock()
+        self._start_gate = threading.RLock()
+        self._working: dict[int, dict[str, Any]] = {}
         self._workers = workers
         self._threads: list[threading.Thread] = []
 
@@ -139,10 +146,11 @@ class JobRunner:
     def submit(self, kind: str, title: str, params: dict[str, Any] | None = None) -> int:
         if kind not in self._handlers:
             raise ValueError(f"No handler for job kind {kind!r}")
-        job_id = self._repo.create(kind, title, params or {})
-        self._announce(job_id)
-        self._queue.put(job_id)
-        return job_id
+        with self._start_gate:
+            job_id = self._repo.create(kind, title, params or {})
+            self._announce(job_id)
+            self._queue.put(job_id)
+            return job_id
 
     def pause(self, job_id: int) -> None:
         self._control_for(job_id).running.clear()
@@ -151,25 +159,37 @@ class JobRunner:
             self._update(job_id, status="paused")
 
     def resume(self, job_id: int) -> None:
-        job = self._repo.get(job_id)
-        if job is None:
-            raise KeyError(job_id)
-        control = self._control_for(job_id)
-        control.running.set()
-        if job["status"] in ("interrupted", "failed", "cancelled"):
-            # Run it again from the start; the handler skips finished work.
-            control.cancel.clear()
-            self._update(job_id, status="queued", error=None, finished_at=None,
-                         message="Resuming…")
-            self._queue.put(job_id)
+        with self._start_gate:
+            job = self._repo.get(job_id)
+            if job is None:
+                raise KeyError(job_id)
+            control = self._control_for(job_id)
+            control.running.set()
+            if job["status"] in ("interrupted", "failed", "cancelled"):
+                # Run it again from the start; the handler skips finished work.
+                control.cancel.clear()
+                self._update(job_id, status="queued", error=None, finished_at=None,
+                             message="Resuming…")
+                self._queue.put(job_id)
+
+    @contextmanager
+    def maintenance(self) -> Iterator[None]:
+        """Keep new jobs out while an idle library is being cleared."""
+        with self._start_gate:
+            running = next(iter(self._working.values()), None)
+            title = running["title"] if running is not None else self._repo.active_title()
+            if title is not None:
+                raise JobsBusy(f"“{title}” is still active. Finish or cancel it first.")
+            yield
 
     def cancel(self, job_id: int) -> None:
         control = self._control_for(job_id)
         control.cancel.set()
         control.running.set()  # wake it if paused, so it can stop
-        job = self._repo.get(job_id)
-        if job and job["status"] in ("queued", "paused", "interrupted"):
-            self._finish(job_id, "cancelled", message="Cancelled")
+        with self._start_gate:
+            job = self._repo.get(job_id)
+            if job and job_id not in self._working and job["status"] in ("queued", "paused", "interrupted"):
+                self._finish(job_id, "cancelled", message="Cancelled")
 
     # ---------- inside the worker threads ----------
 
@@ -185,9 +205,19 @@ class JobRunner:
             self._run(job_id)
 
     def _run(self, job_id: int) -> None:
-        job = self._repo.get(job_id)
-        if job is None or job["status"] in FINISHED:
-            return
+        with self._start_gate:
+            job = self._repo.get(job_id)
+            if job is None or job_id in self._working or job["status"] not in ("queued", "paused"):
+                return
+            self._working[job_id] = job
+        try:
+            self._execute(job_id, job)
+        finally:
+            with self._start_gate:
+                if self._working.get(job_id) is job:
+                    self._working.pop(job_id)
+
+    def _execute(self, job_id: int, job: dict[str, Any]) -> None:
         handler = self._handlers.get(job["kind"])
         if handler is None:
             self._finish(job_id, "failed", error=f"Unknown job kind {job['kind']!r}")
@@ -212,12 +242,14 @@ class JobRunner:
             )
 
     def _finish(self, job_id: int, status: str, **fields: Any) -> None:
-        self._update(
-            job_id,
-            status=status,
-            finished_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            **fields,
-        )
+        with self._start_gate:
+            self._working.pop(job_id, None)
+            self._update(
+                job_id,
+                status=status,
+                finished_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                **fields,
+            )
 
     def _update(self, job_id: int, **fields: Any) -> None:
         self._repo.update(job_id, **fields)

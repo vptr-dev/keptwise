@@ -128,6 +128,17 @@ def test_notes_that_say_nothing_are_never_kept(svc: AppServices, ollama: FakeNet
     assert len([r for r in ollama.requests if r["url"].endswith("/api/chat")]) == 2  # asked once more first
 
 
+def test_notes_and_resort_preserve_import_placements(svc: AppServices, ollama: FakeNet) -> None:
+    (pasta,) = seed(svc, "pasta")
+    with svc.db.connect() as conn:
+        inbox = collections.ensure(conn, "TikTok Inbox")
+        collections.add_from_platform(conn, pasta, inbox)
+    assert run_job(svc, "notes", [pasta])["status"] == "done"
+    assert row(svc, pasta)["links"] == {"TikTok Inbox": "platform"}
+    assert run_job(svc, "sort", [pasta], keep_manual=False)["status"] == "done"
+    assert row(svc, pasta)["links"] == {"TikTok Inbox": "platform"}
+
+
 def test_notes_are_written_and_videos_sorted(svc: AppServices, ollama: FakeNet) -> None:
     svc.settings.set("sorting", AUTO)
     pasta, london, vague, broken = seed(svc, "pasta", "london", "something", "broken")
@@ -421,20 +432,49 @@ def test_platform_collections_link_to_mine(api: TestClient, svc: AppServices) ->
     assert api.post("/api/platform-collections/apply", json={"platform": "youtube", "name": "Recipes"}).status_code == 400
 
 
+def test_partial_sort_choices_keep_other_settings(api: TestClient) -> None:
+    path = "/api/sorting/settings"
+    assert api.patch(path, json={"auto_tag": True, "kind_steps": {"recipe": "Keep the ingredients."}}).status_code == 200
+    assert api.patch(path, json={"auto_sort": True, "kind_steps": {"travel": "Keep opening times."}}).status_code == 200
+    assert api.patch(path, json={"auto_tag": False, "max_collections": 0}).status_code == 422
+    saved = api.get(path).json()["settings"]
+    assert saved["auto_sort"] and saved["auto_tag"] and not saved["auto_notes"]
+    assert saved["kind_steps"]["recipe"] == "Keep the ingredients."
+    assert saved["kind_steps"]["travel"] == "Keep opening times."
+
+
+def test_queued_local_notes_never_switch_to_cloud(svc: AppServices, ollama: FakeNet) -> None:
+    ids = seed(svc, "pasta")
+    svc.ai.set_current("anthropic")
+    blocked = run_job(svc, "notes", ids)
+    assert blocked["status"] == "failed"
+    assert "confirm the current cloud model and cost" in blocked["error"]
+    assert not ollama.requests
+    assert run_job(svc, "notes", ids, provider_id="ollama")["status"] == "done"
+    assert all(request["url"].startswith(OLLAMA) for request in ollama.requests)
+
+
 def test_notes_can_start_by_themselves_when_transcripts_finish(svc: AppServices, ollama: FakeNet) -> None:
     from app.ai.sorting.settings import SortingSettings, load, save
+    from types import SimpleNamespace
+
     from app.services import notes_after
 
+    ctx = SimpleNamespace(cancelled=False)
     seed(svc, "pasta", "london")
     after_transcripts = notes_after(lambda ctx: {"message": "done"}, svc.db, svc.settings, svc.ai, svc.runner, svc.jobs)
 
     assert load(svc.settings).auto_notes is False
-    assert after_transcripts(None) == {"message": "done"}  # type: ignore[arg-type]
+    assert after_transcripts(ctx) == {"message": "done"}  # type: ignore[arg-type]
     assert [job["kind"] for job in svc.jobs.recent()] == []  # off unless the user switches it on
 
     save(svc.settings, SortingSettings(auto_notes=True))
-    after_transcripts(None)  # type: ignore[arg-type]
+    ctx.cancelled = True
+    after_transcripts(ctx)  # type: ignore[arg-type]
+    assert not svc.jobs.recent()
+    ctx.cancelled = False
+    after_transcripts(ctx)  # type: ignore[arg-type]
     started = [job for job in svc.jobs.recent() if job["kind"] == "notes"]
     assert len(started) == 1 and started[0]["title"] == "AI notes for 2 videos"
-    after_transcripts(None)  # type: ignore[arg-type]
+    after_transcripts(ctx)  # type: ignore[arg-type]
     assert len([job for job in svc.jobs.recent() if job["kind"] == "notes"]) == 1  # never two at once

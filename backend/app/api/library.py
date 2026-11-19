@@ -211,7 +211,8 @@ def _overview_counts(conn: sqlite3.Connection, platform: str | None = None) -> d
     # The Unsave list also has the saves you deleted.
     unsave_scope, unsave_params = scope.where(platform, "items", deleted=None)
     counts["to_unsave"] = int(conn.execute(
-        f"SELECT COUNT(*) FROM items WHERE safe_to_unsave = 1 AND unsaved = 0 AND gone_at IS NULL AND {unsave_scope}",
+        f"""SELECT COUNT(*) FROM items
+            WHERE (safe_to_unsave = 1 OR deleted_at IS NOT NULL) AND unsaved = 0 AND gone_at IS NULL AND {unsave_scope}""",
         unsave_params,
     ).fetchone()[0])
     # Plans are the user's own lists: open ones (not finished).
@@ -356,7 +357,8 @@ def _unsave_cards(conn: sqlite3.Connection, platform: str | None = None) -> list
     ones taken down: there's nothing left on the platform to unsave."""
     scoped, params = scope.where(platform, deleted=None)
     rows = conn.execute(
-        f"{CARD_SQL} WHERE i.safe_to_unsave = 1 AND i.gone_at IS NULL AND {scoped} ORDER BY i.unsaved, i.platform, i.saved_at DESC, i.id DESC",
+        f"""{CARD_SQL} WHERE (i.safe_to_unsave = 1 OR i.deleted_at IS NOT NULL)
+            AND i.gone_at IS NULL AND {scoped} ORDER BY i.unsaved, i.platform, i.saved_at DESC, i.id DESC""",
         params,
     ).fetchall()
     return cards_from_rows(conn, rows)
@@ -463,6 +465,7 @@ class UiSettings(BaseModel):
     card_actions: bool = True
     # The first-run setup (name, look, start page) was finished or skipped.
     welcomed: bool = False
+    tutorial_seen: bool = False
     hide_tips: bool = False  # long-time users: no tips, blurbs or descriptions
 
     @field_validator("start_page", mode="before")

@@ -3,8 +3,8 @@
 "From TikTok collection 'recipes', add to my Food". The user picks the app
 collection for each platform collection, and how:
 
-- auto: every save from it is filed there now, and again after each import
-  and re-sort, by itself.
+- auto: file current saves when the user creates the link, and file newly
+  discovered members on subsequent imports.
 - manual: nothing happens until the user presses "Add now".
 
 Links never make collections (the app has at most 10, chosen by the user),
@@ -21,38 +21,46 @@ import sqlite3
 from typing import Any, Literal
 
 from app.ai.sorting.collections import add_from_platform, clean_name, names_from_imports
+from app.db.items_repo import decode_json_list
 from app.importers import PLATFORM_NAMES
 
 Mode = Literal["auto", "manual"]
 
 
-def split_names(raw: str | None) -> list[str]:
-    """The importer joins several platform collections with ', '."""
-    return [clean_name(name) for name in str(raw or "").split(", ") if clean_name(name)]
+def member_names(row: sqlite3.Row) -> list[str]:
+    """Older imports supply only a display string; new ones retain exact names."""
+    raw = row["platform_collections_json"]
+    names = decode_json_list(raw) if raw is not None else (row["platform_collection"] or "").split(", ")
+    return [clean_name(name) for name in names if isinstance(name, str) and clean_name(name)]
 
 
 def _member_counts(conn: sqlite3.Connection) -> dict[tuple[str, str], tuple[str, int]]:
     """(platform, lowercase name) -> (name as written, number of saves)."""
     counts: dict[tuple[str, str], tuple[str, int]] = {}
-    rows = conn.execute(
-        "SELECT platform, platform_collection FROM items WHERE platform_collection IS NOT NULL AND platform_collection <> ''"
-    ).fetchall()
-    for row in rows:
-        for name in split_names(row["platform_collection"]):
-            key = (str(row["platform"]), name.lower())
+    for row in conn.execute(
+        """SELECT platform, platform_collection, platform_collections_json FROM items
+           WHERE platform_collection IS NOT NULL AND deleted_at IS NULL AND gone_at IS NULL ORDER BY id"""
+    ):
+        for lower, name in {name.casefold(): name for name in member_names(row)}.items():
+            key = (str(row["platform"]), lower)
             shown, number = counts.get(key, (name, 0))
             counts[key] = (shown, number + 1)
     return counts
 
 
-def _members(conn: sqlite3.Connection, platform: str, name: str) -> list[int]:
+def _members(conn: sqlite3.Connection, platform: str, name: str, collection_id: int | None = None) -> list[int]:
     """The saves the export says are in this platform collection."""
-    wanted = clean_name(name).lower()
-    rows = conn.execute(
-        "SELECT id, platform_collection FROM items WHERE platform = ? AND platform_collection LIKE ?",
-        (platform, f"%{wanted}%"),
-    ).fetchall()
-    return [int(row["id"]) for row in rows if wanted in {n.lower() for n in split_names(row["platform_collection"])}]
+    wanted = clean_name(name).casefold()
+    query = """SELECT i.id, i.platform_collection, i.platform_collections_json FROM items i WHERE i.platform = ?
+               AND i.platform_collection IS NOT NULL AND i.deleted_at IS NULL AND i.gone_at IS NULL"""
+    params: tuple[str | int, ...] = (platform,)
+    if collection_id is not None:
+        query += " AND EXISTS (SELECT 1 FROM item_collections ic WHERE ic.item_id = i.id AND ic.collection_id = ?)"
+        params += (collection_id,)
+    return [
+        int(row["id"]) for row in conn.execute(query, params)
+        if wanted in {name.casefold() for name in member_names(row)}
+    ]
 
 
 def overview(conn: sqlite3.Connection, platform: str | None = None) -> list[dict[str, Any]]:
@@ -63,10 +71,10 @@ def overview(conn: sqlite3.Connection, platform: str | None = None) -> list[dict
         entries[(plat, lower)] = {"platform": plat, "name": name, "count": number, "membership_known": True}
     for plat, name in names_from_imports(conn):
         entries.setdefault(
-            (plat, name.lower()), {"platform": plat, "name": name, "count": 0, "membership_known": False}
+            (plat, name.casefold()), {"platform": plat, "name": name, "count": 0, "membership_known": False}
         )
     links = {
-        (str(row["platform"]), str(row["name"]).lower()): row
+        (str(row["platform"]), str(row["name"]).casefold()): row
         for row in conn.execute(
             """SELECT l.platform, l.name, l.mode, l.collection_id, c.name AS collection_name
                FROM platform_links l LEFT JOIN collections c ON c.id = l.collection_id"""
@@ -79,12 +87,7 @@ def overview(conn: sqlite3.Connection, platform: str | None = None) -> list[dict
         link = links.get(key)
         filed = 0
         if link and link["collection_id"] and entry["count"]:
-            ids = _members(conn, entry["platform"], entry["name"])
-            marks = ",".join("?" for _ in ids)
-            filed = int(conn.execute(
-                f"SELECT COUNT(*) FROM item_collections WHERE collection_id = ? AND item_id IN ({marks})",
-                (link["collection_id"], *ids),
-            ).fetchone()[0])
+            filed = len(_members(conn, entry["platform"], entry["name"], link["collection_id"]))
         out.append(entry | {
             "platform_name": PLATFORM_NAMES.get(entry["platform"], entry["platform"]),
             "collection_id": link["collection_id"] if link else None,
@@ -102,6 +105,12 @@ def set_link(conn: sqlite3.Connection, platform: str, name: str, collection_id: 
     name = clean_name(name)
     if not name:
         raise ValueError("Which platform collection?")
+    existing = next((
+        row for row in conn.execute("SELECT * FROM platform_links WHERE platform = ?", (platform,))
+        if row["name"].casefold() == name.casefold()
+    ), None)
+    if existing is not None:
+        name = existing["name"]
     if collection_id is None:
         conn.execute("DELETE FROM platform_links WHERE platform = ? AND name = ?", (platform, name))
         return 0
@@ -110,7 +119,8 @@ def set_link(conn: sqlite3.Connection, platform: str, name: str, collection_id: 
            ON CONFLICT (platform, name) DO UPDATE SET collection_id = excluded.collection_id, mode = excluded.mode""",
         (platform, name, collection_id, mode),
     )
-    return apply(conn, platform, name) if mode == "auto" else 0
+    changed = existing is None or existing["collection_id"] != collection_id or existing["mode"] != mode
+    return apply(conn, platform, name) if mode == "auto" and changed else 0
 
 
 def apply(conn: sqlite3.Connection, platform: str, name: str) -> int:
@@ -123,26 +133,35 @@ def apply(conn: sqlite3.Connection, platform: str, name: str) -> int:
     return sum(add_from_platform(conn, item_id, int(row["collection_id"])) for item_id in _members(conn, platform, name))
 
 
-def apply_all_auto(conn: sqlite3.Connection) -> int:
-    """Run every auto link (after an import). Returns how many saves were filed."""
-    rows = conn.execute(
-        "SELECT platform, name FROM platform_links WHERE mode = 'auto' AND collection_id IS NOT NULL"
-    ).fetchall()
-    return sum(apply(conn, str(row["platform"]), str(row["name"])) for row in rows)
+def import_destinations(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    defaults = dict(conn.execute("SELECT platform, collection_id FROM platform_import_destinations"))
+    return [
+        {"platform": platform, "platform_name": name, "collection_id": defaults.get(platform)}
+        for platform, name in PLATFORM_NAMES.items()
+    ]
 
 
-def linked_collections(conn: sqlite3.Connection, item: dict[str, Any]) -> list[str]:
-    """The app collections this save's platform collections are auto-linked to."""
-    wanted = [name.lower() for name in split_names(item.get("platform_collection"))]
-    if not wanted:
-        return []
-    rows = conn.execute(
-        """SELECT l.name, c.name AS collection FROM platform_links l JOIN collections c ON c.id = l.collection_id
-           WHERE l.platform = ? AND l.mode = 'auto'""",
-        (item.get("platform"),),
-    ).fetchall()
-    out: list[str] = []
-    for row in rows:
-        if str(row["name"]).lower() in wanted and row["collection"] not in out:
-            out.append(str(row["collection"]))
-    return out
+def set_import_destination(conn: sqlite3.Connection, platform: str, collection_id: int | None) -> None:
+    if collection_id is None:
+        conn.execute("DELETE FROM platform_import_destinations WHERE platform = ?", (platform,))
+    else:
+        conn.execute(
+            """INSERT INTO platform_import_destinations (platform, collection_id) VALUES (?, ?)
+               ON CONFLICT (platform) DO UPDATE SET collection_id = excluded.collection_id""",
+            (platform, collection_id),
+        )
+
+
+def import_routes(conn: sqlite3.Connection, platform: str) -> tuple[dict[str, int], int | None]:
+    exact = {
+        row["name"].casefold(): row["collection_id"]
+        for row in conn.execute(
+            """SELECT name, collection_id FROM platform_links
+               WHERE platform = ? AND mode = 'auto' AND collection_id IS NOT NULL""",
+            (platform,),
+        )
+    }
+    default = conn.execute(
+        "SELECT collection_id FROM platform_import_destinations WHERE platform = ?", (platform,)
+    ).fetchone()
+    return exact, default["collection_id"] if default else None

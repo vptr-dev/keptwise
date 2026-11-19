@@ -25,7 +25,7 @@ recording: ContextVar[int | None] = ContextVar("undo_recording", default=None)
 
 RECORDED = (
     "items", "transcripts", "ai_results", "collections", "item_collections", "spaces", "tags", "item_tags",
-    "plans", "plan_items", "plan_tasks", "platform_links", "removed_links",
+    "plans", "plan_items", "plan_tasks", "platform_links", "platform_import_destinations", "removed_links",
 )
 STEPS_KEPT = 100
 # Sent by the AI with each action, so one answer's actions undo together.
@@ -69,11 +69,12 @@ LABELS: list[tuple[str, str, str]] = [
     ("POST", r"/api/plans/\d+/tasks$", "Add a to-do"),
     ("DELETE", r"/api/plans/\d+/tasks/\d+$", "Delete a to-do"),
     ("", r"/api/plans/", "Change plan"),
+    ("PUT", r"/api/platform-collections/default$", "Change import destination"),
     ("", r"/api/platform-collections", "Change platform collections"),
 ]
 
 # Requests that are never a step of their own.
-NOT_RECORDED = re.compile(r"^/api/(undo|redo|jobs|updates|session|storage|dev|imports|ai/|assistant/)")
+NOT_RECORDED = re.compile(r"^/api/(undo|redo|jobs|updates|session|storage|dev|imports|sorting/settings$|ai/|assistant/)")
 
 
 def label_for(method: str, path: str) -> str:

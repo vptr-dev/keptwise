@@ -72,7 +72,7 @@ def set_deleted(conn: sqlite3.Connection, item_id: int, deleted: bool) -> None:
     are all still there when it comes back. A deleted save goes on the
     Unsave list: you don't want it, so it can go from the platform too."""
     if deleted:
-        update_item(conn, item_id, deleted_at=now_iso(), safe_to_unsave=1)
+        update_item(conn, item_id, deleted_at=now_iso())
     else:
         update_item(conn, item_id, deleted_at=None)
 

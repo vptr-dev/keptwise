@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.db.items_repo import NewItem, upsert_item
-from app.search.agent import Action, allowed, catalog, is_big
+from app.search.agent import Action, allowed, catalog, is_big, run_approved
 from app.services import AppServices
 from tests.fakes import FakeNet
 
@@ -132,6 +132,21 @@ def test_questions_about_the_saves_are_answered_as_before(api: TestClient, svc: 
     with pytest.raises(IndexError):  # the usual answer step asks the AI next (this script has no reply for it)
         api.post(f"/api/assistant/chats/{api.post('/api/assistant/chats', json={}).json()['id']}/messages",
                  json={"content": "what pasta did I save?"})
+
+
+def test_assistant_cannot_confirm_a_paid_batch_for_the_user(api: TestClient) -> None:
+    seen = []
+
+    def call(method: str, path: str, body: dict[str, Any] | None, step: int) -> tuple[int, Any]:
+        seen.append(body)
+        return 409, {"code": "confirm_cost"}
+
+    run_approved(
+        call, catalog(api.app),
+        [{"method": "POST", "path": "/api/notes/start", "body": {"count": 10, "confirm_cost": True}}],
+        {}, 1,
+    )
+    assert seen == [{"count": 10, "confirm_cost": False}]
 
 
 def test_what_counts_as_big(api: TestClient) -> None:

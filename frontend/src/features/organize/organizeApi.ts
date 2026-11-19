@@ -55,12 +55,15 @@ export type PlatformLink = {
 };
 export type PlatformLinks = {
   links: PlatformLink[];
+  import_destinations?: ImportDestination[];
   room_left: number;
   filed?: number;
   made?: number; // transfer: new collections made
   linked?: number; // transfer: platform collections linked
   no_room?: number; // transfer: left out because the space is full
 };
+
+export type ImportDestination = Pick<PlatformLink, "platform" | "platform_name" | "collection_id">;
 
 export type CollectionChange = {
   name?: string;
@@ -103,6 +106,10 @@ export const organizeApi = {
   mergeCollection: (id: number, intoId: number) =>
     api.post<CollectionsOverview>(`/api/collections/${id}/merge`, { into_id: intoId }),
   platformLinks: (spaceId?: number) => api.get<PlatformLinks>(`/api/platform-collections${spaceId ? `?space_id=${spaceId}` : ""}`),
+  setImportDestination: (platform: string, collectionId: number | null) =>
+    api.put<{ import_destinations: ImportDestination[] }>("/api/platform-collections/default", {
+      platform, collection_id: collectionId,
+    }),
   /** Every platform collection not linked yet becomes (or joins) a collection of the same name. */
   transferPlatforms: (body: { space_id?: number; parent_id?: number | null; platform?: string }) =>
     api.post<PlatformLinks>("/api/platform-collections/transfer", body),

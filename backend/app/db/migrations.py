@@ -595,6 +595,17 @@ MIGRATIONS.append(
 )
 
 
+MIGRATIONS.append(
+    """
+    ALTER TABLE items ADD COLUMN platform_collections_json TEXT;
+    CREATE TABLE platform_import_destinations (
+        platform TEXT PRIMARY KEY,
+        collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE
+    );
+    """
+)
+
+
 def schema_version(conn: sqlite3.Connection) -> int:
     return int(conn.execute("PRAGMA user_version").fetchone()[0])
 

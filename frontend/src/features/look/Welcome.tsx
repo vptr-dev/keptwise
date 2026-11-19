@@ -11,20 +11,24 @@ import { Button, Segmented, inputClass } from "../../components/ui";
 import { navigate } from "../../lib/router";
 import { START_PAGE_LABELS, TEXT_SIZE_LABELS, THEME_LABELS, type Look, type StartPage, type ThemeChoice } from "../../lib/theme";
 import { AccentSwatches } from "./AppearanceSettings";
+import WorkflowControls from "../sorting/WorkflowControls";
 
-const STEPS = ["Hello", "Look", "Layout", "Ready"] as const;
+const STEPS = ["Hello", "Look", "Layout", "Workflow", "Ready"] as const;
 
 export default function Welcome({
   look,
   onChange,
   onTheme,
+  cloud = false,
 }: {
   look: Look;
   onChange: (change: Partial<Look>) => void;
   onTheme: (theme: ThemeChoice) => void;
+  cloud?: boolean;
 }) {
   const [step, setStep] = useState(0);
   const [name, setName] = useState(look.name);
+  const [savingWorkflow, setSavingWorkflow] = useState(false);
   const finish = (then?: string) => {
     onChange({ name: name.trim().slice(0, 40), welcomed: true });
     if (then) navigate(then);
@@ -36,7 +40,7 @@ export default function Welcome({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") finish();
+      if (event.key === "Escape" && !savingWorkflow) finish();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -48,7 +52,7 @@ export default function Welcome({
         role="dialog"
         aria-modal="true"
         aria-label="Set up Keptwise"
-        className="kw-rise kw-glass-pop flex w-full max-w-lg flex-col rounded-3xl border border-zinc-200 bg-white p-8 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
+        className="kw-rise kw-glass-pop flex max-h-full w-full overflow-y-auto max-w-lg flex-col rounded-3xl border border-zinc-200 bg-white p-8 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900"
       >
         <div className="mb-6 flex items-center justify-between">
           <ol className="flex gap-1.5" aria-label="Steps">
@@ -62,7 +66,7 @@ export default function Welcome({
             ))}
           </ol>
           {step < STEPS.length - 1 && (
-            <button type="button" onClick={() => finish()} className="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">
+            <button type="button" onClick={() => finish()} disabled={savingWorkflow} className="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-white">
               Skip
             </button>
           )}
@@ -158,13 +162,21 @@ export default function Welcome({
           )}
 
           {step === 3 && (
+            <div className="space-y-5">
+              <Heading title="How much should Keptwise do?" text="Choose what to automate. Start with suggestions and review them yourself, or let Keptwise file and tag confident matches." />
+              <WorkflowControls cloud={cloud} onSaving={setSavingWorkflow} />
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">Change these choices later in Settings → Workflow.</p>
+            </div>
+          )}
+
+          {step === 4 && (
             <div className="space-y-6">
               <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-600 p-3.5 text-white dark:bg-indigo-500 dark:text-zinc-900">
                 {icons.check}
               </span>
               <Heading
                 title={name.trim() ? `All set, ${name.trim()}` : "All set"}
-                text="Next, bring in your saves: ask TikTok, YouTube, Instagram or Facebook for your data, then drop the file on the Import page. Everything stays on this PC."
+                text="Next, bring in your saves: ask TikTok, YouTube, Instagram or Facebook for your data, then drop the file on the Import page. Your library is stored on this PC."
               />
             </div>
           )}
@@ -172,14 +184,14 @@ export default function Welcome({
 
         <div className="mt-8 flex items-center justify-between gap-3">
           {step > 0 ? (
-            <Button variant="ghost" onClick={() => setStep(step - 1)}>
+            <Button variant="ghost" disabled={savingWorkflow} onClick={() => setStep(step - 1)}>
               Back
             </Button>
           ) : (
             <span />
           )}
           {step < STEPS.length - 1 ? (
-            <Button onClick={next}>{step === 0 ? "Make it mine" : "Next"}</Button>
+            <Button disabled={savingWorkflow} onClick={next}>{step === 0 ? "Make it mine" : "Next"}</Button>
           ) : (
             <div className="flex gap-2">
               <Button variant="secondary" onClick={() => finish()}>

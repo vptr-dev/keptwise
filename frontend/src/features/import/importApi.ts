@@ -21,6 +21,7 @@ export type PlatformResult = {
   found: number;
   new: number;
   already_had: number;
+  filed?: number;
   collections: string[];
   notes: string[];
 };

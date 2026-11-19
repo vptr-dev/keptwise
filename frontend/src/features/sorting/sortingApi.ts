@@ -155,7 +155,7 @@ export const sortingApi = {
   aiTags: (which: "untagged" | "with_notes", confirmCost = false, itemIds?: number[]) =>
     api.post<Job>("/api/tags/ai", { which, confirm_cost: confirmCost, item_ids: itemIds }),
   getSettings: () => api.get<SortingSettingsResponse>("/api/sorting/settings"),
-  saveSettings: (settings: SortingSettings) => api.put<SortingSettingsResponse>("/api/sorting/settings", settings),
+  saveSettings: (changes: Partial<SortingSettings>) => api.patch<SortingSettingsResponse>("/api/sorting/settings", changes),
 };
 
 /** "Drag" data: which item, and which collection it was dragged out of. */

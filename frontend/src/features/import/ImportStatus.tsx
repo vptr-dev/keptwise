@@ -80,6 +80,7 @@ function ResultCard({ result, message }: { result: ImportResult | null; message:
                 <span className="font-medium">{platform.name}</span>
                 <Badge tone="green">{platform.new.toLocaleString("en-GB")} new</Badge>
                 {platform.already_had > 0 && <Badge>{platform.already_had.toLocaleString("en-GB")} already here</Badge>}
+                {!!platform.filed && <Badge>{platform.filed.toLocaleString("en-GB")} filed automatically</Badge>}
               </div>
               {platform.collections.length > 0 && (
                 <p className="mt-1.5 text-sm text-zinc-600 dark:text-zinc-400">

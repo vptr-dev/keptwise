@@ -8,8 +8,8 @@ import { icons } from "../../components/icons";
 import { Button, Notice } from "../../components/ui";
 import { errorText } from "../../lib/api";
 import { navigate } from "../../lib/router";
-import type { Collection, LibraryCounts } from "../sorting/sortingApi";
-import { announceChange, organizeApi, type PlatformLink } from "./organizeApi";
+import type { Collection, LibraryCounts, Space } from "../sorting/sortingApi";
+import { announceChange, organizeApi, type PlatformLinks } from "./organizeApi";
 
 export type Way = "hand" | "platforms";
 
@@ -17,42 +17,42 @@ export default function OrganiseChoices({
   counts,
   spaceId,
   spaceName,
+  collections,
+  spaces,
   inside,
   initial = null,
 }: {
   counts: LibraryCounts | undefined;
   spaceId: number | undefined;
   spaceName: string;
+  collections: Collection[];
+  spaces: Space[];
   inside: Collection | undefined; // the collection that's open, if any
   initial?: Way | null;
 }) {
   const [open, setOpen] = useState<Way | null>(initial);
-  const [links, setLinks] = useState<PlatformLink[] | null>(null);
+  const [data, setData] = useState<PlatformLinks | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   useEffect(() => setOpen(initial), [initial]);
   const loadLinks = useCallback(() => {
+    let current = true;
+    setLoadError(null);
     organizeApi
       .platformLinks(spaceId)
-      .then((l) => setLinks(l.links))
-      .catch(() => setLinks([]));
+      .then((result) => { if (current) setData(result); })
+      .catch((error) => { if (current) setLoadError(errorText(error)); });
+    return () => { current = false; };
   }, [spaceId]);
   useEffect(loadLinks, [loadLinks]);
 
   const unsorted = counts?.unsorted ?? 0;
-  const waiting = (links ?? []).filter((l) => l.collection_id === null);
   const ways: { id: Way; icon: ReactNode; title: string; status: string }[] = [
     { id: "hand", icon: icons.select, title: "Organise by hand", status: `${unsorted.toLocaleString()} in Unsorted` },
     {
       id: "platforms",
       icon: icons.link,
       title: "Bring from your platform",
-      status:
-        links === null
-          ? "…"
-          : links.length === 0
-            ? "No platform collections in your imports"
-            : waiting.length
-              ? `${waiting.length} collection${waiting.length === 1 ? "" : "s"} to bring over`
-              : "All brought over",
+      status: "Import destinations and collection links",
     },
   ];
 
@@ -119,7 +119,18 @@ export default function OrganiseChoices({
 
       {open === "platforms" && (
         <Panel>
-          <BringOver links={links} spaceId={spaceId} spaceName={spaceName} inside={inside} onDone={loadLinks} />
+          {loadError && <Notice tone="error">{loadError} <Button onClick={loadLinks}>Retry</Button></Notice>}
+          {data ? (
+            <BringOver
+              data={data}
+              spaceId={spaceId}
+              spaceName={spaceName}
+              collections={collections}
+              spaces={spaces}
+              inside={inside}
+              onDone={setData}
+            />
+          ) : !loadError && <p className="text-sm text-zinc-500">Loading…</p>}
         </Panel>
       )}
     </section>
@@ -136,51 +147,42 @@ function Panel({ children }: { children: ReactNode }) {
 
 /** Your platform's collections, made here with the same names, in one go. */
 function BringOver({
-  links,
+  data,
   spaceId,
   spaceName,
+  collections,
+  spaces,
   inside,
   onDone,
 }: {
-  links: PlatformLink[] | null;
+  data: PlatformLinks;
   spaceId: number | undefined;
   spaceName: string;
+  collections: Collection[];
+  spaces: Space[];
   inside: Collection | undefined;
-  onDone: () => void;
+  onDone: (data: PlatformLinks) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
 
-  if (links === null) return <p className="text-sm text-zinc-500">Loading…</p>;
-  if (links.length === 0) {
-    return (
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        Your imports didn't include any collections from TikTok, YouTube, Instagram or Facebook. Import your data again
-        if you've made some since.
-      </p>
-    );
-  }
+  const { links, import_destinations: destinations = [] } = data;
   const todo = links.filter((l) => l.collection_id === null);
   const namesOnly = links.some((l) => !l.membership_known);
   const where = inside ? `inside “${inside.name}”` : `in ${spaceName}`;
+  const options = collections.map((collection) => {
+    const space = spaces.find((entry) => entry.id === collection.space_id);
+    return <option key={collection.id} value={collection.id}>{space ? `${space.name} / ` : ""}{collection.path}</option>;
+  });
 
-  async function go() {
+  async function save(action: () => Promise<string>) {
     setBusy(true);
     setProblem(null);
     setMessage(null);
     try {
-      const done = await organizeApi.transferPlatforms({ space_id: spaceId, parent_id: inside?.id ?? null });
-      const made = done.made ?? 0;
-      const reused = (done.linked ?? 0) - made;
-      const parts = [
-        made ? `Made ${made} collection${made === 1 ? "" : "s"} ${where}` : null,
-        reused ? `${reused} already existed and ${reused === 1 ? "was" : "were"} kept` : null,
-        done.filed ? `${done.filed.toLocaleString()} save${done.filed === 1 ? "" : "s"} put in them` : null,
-      ].filter(Boolean);
-      setMessage(`${parts.join(", ") || "Nothing new to bring over"}.${done.no_room ? ` ${done.no_room} didn't fit: this space is full.` : ""}`);
+      setMessage(await action());
       announceChange();
-      onDone();
     } catch (e) {
       setProblem(errorText(e));
     } finally {
@@ -188,45 +190,104 @@ function BringOver({
     }
   }
 
+  async function transfer(): Promise<string> {
+    const done = await organizeApi.transferPlatforms({ space_id: spaceId, parent_id: inside?.id ?? null });
+    onDone(done);
+    const made = done.made ?? 0;
+    const reused = (done.linked ?? 0) - made;
+    const parts = [
+      made ? `Made ${made} collection${made === 1 ? "" : "s"} ${where}` : null,
+      reused ? `${reused} already existed and ${reused === 1 ? "was" : "were"} kept` : null,
+      done.filed ? `${done.filed.toLocaleString()} save${done.filed === 1 ? "" : "s"} put in them` : null,
+    ].filter(Boolean);
+    return `${parts.join(", ") || "Nothing new to bring over"}.${done.no_room ? ` ${done.no_room} didn't fit: this space is full.` : ""}`;
+  }
+
+  const selectClass = "w-full rounded-lg border border-zinc-300 bg-transparent px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900";
   return (
-    <div className="space-y-3">
-      <p className="text-sm text-zinc-700 dark:text-zinc-300">
-        Makes a collection here for each one you had on the platform, with the same name, {where}. Ones you already have
-        are kept as they are.
-      </p>
-      {namesOnly && (
-        <p className="kw-tip text-xs text-zinc-500 dark:text-zinc-400">
-          TikTok's data only lists your collection names, not which videos are in each, so these start empty. Then go to
-          Sort and press “Suggest again”: the AI suggests which saves go in them, and you accept.
+    <div className="space-y-4">
+      {destinations.length > 0 && <section className="space-y-2" aria-label="New import destinations">
+        <h3 className="text-sm font-semibold">Where new saves go</h3>
+        <p className="text-xs text-zinc-600 dark:text-zinc-400">
+          When an import has a matching collection link below, that link takes priority. Existing saves keep their placements.
+          {collections.length === 0 && " Create a collection first to choose a destination."}
         </p>
-      )}
-      <ul className="flex flex-wrap gap-1.5">
-        {links.map((link) => (
-          <li
-            key={`${link.platform}-${link.name}`}
-            className={`rounded-full px-2.5 py-1 text-xs ${
-              link.collection_id === null
-                ? "bg-indigo-50 text-indigo-800 dark:bg-indigo-950/50 dark:text-indigo-200"
-                : "bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
-            }`}
-            title={link.collection_id === null ? `From ${link.platform_name}` : `Already here as ${link.collection_name}`}
-          >
-            {link.collection_id !== null && "✓ "}
-            {link.name}
-            {link.membership_known && link.count > 0 && <span className="opacity-70"> · {link.count}</span>}
-          </li>
-        ))}
-      </ul>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button disabled={busy || todo.length === 0} onClick={() => void go()}>
-          {busy ? "Making them…" : todo.length ? `Make ${todo.length} collection${todo.length === 1 ? "" : "s"} here` : "All brought over"}
-        </Button>
-        {message && namesOnly && (
-          <Button variant="secondary" onClick={() => navigate("/transcripts")}>
-            Go to Sort
-          </Button>
-        )}
-      </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {destinations.map((destination) => (
+            <label className="space-y-1 text-xs" key={destination.platform}>
+              <span>{destination.platform_name}</span>
+              <select className={selectClass} disabled={busy || collections.length === 0} value={destination.collection_id ?? ""}
+                onChange={(event) => {
+                  const id = Number(event.target.value) || null;
+                  void save(async () => {
+                    const updated = await organizeApi.setImportDestination(destination.platform, id);
+                    onDone({ ...data, ...updated });
+                    return `${destination.platform_name} import destination updated.`;
+                  });
+                }}>
+                <option value="">No default collection</option>
+                {options}
+              </select>
+            </label>
+          ))}
+        </div>
+      </section>}
+      <section className="space-y-2 border-t border-zinc-200 pt-4 dark:border-zinc-800" aria-label="Imported collection links">
+        <h3 className="text-sm font-semibold">Collections from your exports</h3>
+        {links.length === 0 && <p className="text-xs text-zinc-500">No platform collections found in your imports yet.</p>}
+        {links.some((link) => link.membership_known) && <p className="text-xs text-zinc-600 dark:text-zinc-400">
+          Linking an export collection adds its known saves to the destination. Existing placements stay.
+        </p>}
+        {namesOnly && <p className="text-xs text-zinc-600 dark:text-zinc-400">
+          Some exports, including TikTok’s, list collection names only. You can use those names as folders or AI sorting hints.
+        </p>}
+        {links.length > 0 && <details>
+          <summary className="cursor-pointer text-sm">Manage collection links ({links.length})</summary>
+          <ul className="mt-2 divide-y divide-zinc-200 dark:divide-zinc-800">
+            {links.map((link) => (
+              <li className="grid items-center gap-2 py-2 sm:grid-cols-2" key={`${link.platform}-${link.name}`}>
+                <div>
+                  <p className="text-sm">{link.name}</p>
+                  <p className="text-xs text-zinc-500">{link.platform_name} · {link.membership_known
+                    ? `${link.count.toLocaleString()} saves${link.collection_id ? ` · ${link.filed.toLocaleString()} filed` : ""}`
+                    : "Name only"}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <select className={selectClass} aria-label={`Destination for ${link.platform_name} ${link.name}`}
+                    disabled={busy || collections.length === 0} value={link.collection_id ?? ""}
+                    onChange={(event) => {
+                      const id = Number(event.target.value) || null;
+                      void save(async () => {
+                        const result = await organizeApi.linkPlatform({
+                          platform: link.platform, name: link.name, collection_id: id, mode: "auto",
+                        });
+                        onDone(result);
+                        return id === null ? "Collection link removed. Existing placements were kept."
+                          : result.filed ? `Filed ${result.filed.toLocaleString()} saves.` : "Collection link saved.";
+                      });
+                    }}>
+                    <option value="">No linked collection</option>
+                    {options}
+                  </select>
+                  {link.mode === "manual" && link.collection_id !== null && link.membership_known && (
+                    <Button variant="secondary" size="sm" disabled={busy} onClick={() => void save(async () => {
+                      const result = await organizeApi.applyPlatform(link.platform, link.name);
+                      onDone(result);
+                      return `Filed ${(result.filed ?? 0).toLocaleString()} saves.`;
+                    })}>Add now</Button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </details>}
+        <div className="flex flex-wrap gap-2">
+          {todo.length > 0 && <Button disabled={busy} onClick={() => void save(transfer)}>
+            Make {todo.length} collection{todo.length === 1 ? "" : "s"} here
+          </Button>}
+          {message && namesOnly && <Button variant="secondary" onClick={() => navigate("/transcripts")}>Go to Sort</Button>}
+        </div>
+      </section>
       {message && (
         <Notice tone="success" onClose={() => setMessage(null)}>
           {message}

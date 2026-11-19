@@ -42,7 +42,7 @@ ALLOWED = re.compile(
     r"|enrich/start|undo|redo)"
 )
 NOT_FOR_AI = re.compile(r"/thumbnail$|/search/(status|index)$|\.csv$|/export$|/open-folder$")
-BIG_PATHS = re.compile(r"/merge$|/tags/delete$|/collections/bulk$|/platform-collections/(apply|transfer)$|/sorting/(resort|clear)$"
+BIG_PATHS = re.compile(r"/merge$|/tags/delete$|/collections/bulk$|/platform-collections(?:/(apply|transfer|default))?$|/sorting/(resort|clear)$"
                        r"|/review/accept-all$")
 BIG_BULK = {"delete", "purge", "move_to", "remove_from", "unsaved"}
 
@@ -76,6 +76,7 @@ RULES = (
     "- When you need ids you don't have (which saves match something, a collection's contents), use GET actions "
     "first; their results come back to you and you can act after.\n"
     "- Do exactly what the user asked, as specifically as they asked, no more.\n"
+    "- If a paid batch needs confirmation, tell the user to start it from Sort, where they can see the cost prompt.\n"
     "- A reply with GET actions should have only GET actions: changes come in a later reply, once you've seen "
     "the results (real ids, never 0 or made-up ones).\n"
     "- If an action fails because of a limit or a rule (for example the most tags allowed), stop and explain it "
@@ -350,7 +351,10 @@ def _run_all(call: Caller, todo: list[Action], actions: list[dict[str, str]], ro
             rounds.append(f"{action.method} {action.path} -> not allowed: that action doesn't exist or isn't yours to use")
             continue
         try:
-            status, body = call(action.method, action.path, action.body, step)
+            payload = action.body
+            if payload and "confirm_cost" in payload:
+                payload = {**payload, "confirm_cost": False}
+            status, body = call(action.method, action.path, payload, step)
         except Exception as error:  # noqa: BLE001 - one failed action is reported, not fatal
             status, body = 500, {"detail": str(error)}
         rounds.append(result_text(action, status, body))

@@ -23,7 +23,7 @@ from app.ai.base import AIError, Message, Provider
 from app.ai.json_tools import chat_json
 from app.ai.pictures import pictures_for
 from app.ai.service import AIService
-from app.ai.sorting import collections, platform_links, tags
+from app.ai.sorting import collections, tags
 from app.ai.sorting.decide import Decision, decide, rule_hits, rule_tag_hits
 from app.ai.sorting.prompts import (
     NotesAnswer,
@@ -50,6 +50,7 @@ T = TypeVar("T", bound=BaseModel)
 # These mean the AI can't be used at all right now, so every item would fail.
 STOP_CODES = {"unreachable", "bad_key", "missing_key", "missing_model", "model_missing", "rate_limited"}
 STOP_AFTER = 2
+CLOUD_BATCH_LIMIT = 50
 EMPTY_NOTES = "The AI's notes for this one didn't make sense, so they weren't kept. Write notes again to retry."
 
 
@@ -85,8 +86,8 @@ class Sorter:
                  keep_manual: bool = True) -> None:
         self.ctx = ctx
         self.db = db
-        self.provider: Provider = ai.provider()
-        self.label = ai.current_label()
+        self.provider: Provider = ai.provider(ctx.params.get("provider_id"))
+        self.label = f"{self.provider.info.label} · {self.provider.model}"
         self.settings: SortingSettings = load(settings_repo)
         self.keep_manual = keep_manual
         # Pictures for the AI live next to the database (thumbnails\). The first
@@ -114,6 +115,12 @@ class Sorter:
     def run(self, raw_ids: list[Any], task: str) -> dict[str, Any]:
         ids = [int(item_id) for item_id in raw_ids]
         total = len(ids)
+        if self.ctx.params.get("automatic") and not self.settings.auto_notes:
+            return {"message": "Automatic notes are off."}
+        if self.provider.info.kind == "cloud" and (
+            self.ctx.params.get("cloud_model") != self.provider.model or total > CLOUD_BATCH_LIMIT
+        ):
+            raise AIError("Start a new batch from Sort to confirm the current cloud model and cost.", "confirm_cost")
         strikes = 0
         verb = {"notes": "Writing notes for", "tags": "Tagging"}.get(task, "Sorting")
         for done, item_id in enumerate(ids):
@@ -302,7 +309,7 @@ class Sorter:
                 has_user_links: bool) -> Decision:
         with self.db.connect() as conn:
             existing = {name.lower() for name in collections.all_names(conn)}
-            linked = platform_links.linked_collections(conn, item)
+            linked = [link["name"] for link in collections.links_of(conn, item["id"]) if link["source"] == "platform"]
         # Rules that name a collection that's gone are skipped (never re-made).
         rules = [name for name in rule_hits(self.settings.rules, item, item["transcript"]) if name.lower() in existing]
         return decide(
@@ -331,7 +338,7 @@ class Sorter:
         return decision.suggestions[0]["name"] if decision.suggestions else None
 
     def _apply(self, conn: Any, item: dict[str, Any], decision: Decision, processed: bool) -> None:
-        keep = ("user",) if self.keep_manual else ()
+        keep = ("user", "platform") if self.keep_manual else ("platform",)
         collections.replace_links(conn, item["id"], decision.links, keep_sources=keep,
                                   new_parent=self._ai_folder(conn))
         tags.replace_source(conn, item["id"], rule_tag_hits(self.settings.rules, item, item["transcript"]), "rule")

@@ -64,24 +64,25 @@ def notes_after(handler: Handler, db: Database, settings: SettingsRepo, ai: AISe
     waits to be asked), only when it's ready, and never two notes jobs at once."""
 
     def run(ctx: JobContext) -> dict[str, Any] | None:
+        result = handler(ctx)
         try:
-            return handler(ctx)
-        finally:
-            try:
-                if load_sorting(settings).auto_notes and not ai.is_cloud():
-                    ai.check_ready()
+            if not ctx.cancelled and load_sorting(settings).auto_notes:
+                provider = ai.provider()
+                if provider.info.kind == "local":
+                    ai.check_ready(provider)
                     busy = any(job["kind"] == "notes" and job["status"] in ("queued", "running", "paused")
                                for job in jobs.recent(20))
                     with db.connect() as conn:
                         ids = [int(row["id"]) for row in conn.execute(
-                            "SELECT id FROM items WHERE status = 'enriched' AND deleted_at IS NULL "
+                            "SELECT id FROM items WHERE status = 'enriched' AND deleted_at IS NULL AND gone_at IS NULL "
                             "ORDER BY saved_at DESC, id DESC"
                         )]
                     if ids and not busy:
                         runner.submit("notes", f"AI notes for {len(ids):,} video{'s' if len(ids) != 1 else ''}",
-                                      {"item_ids": ids})
-            except Exception:  # noqa: BLE001 - never spoil the job that just ran
-                pass
+                                      {"item_ids": ids, "provider_id": provider.info.id, "automatic": True})
+        except Exception:  # noqa: BLE001 - never spoil the finished transcript job
+            pass
+        return result
 
     return run
 

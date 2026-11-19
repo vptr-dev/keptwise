@@ -103,8 +103,11 @@ test("storage can clear the backups, the saves or everything, and asks first", a
   const row = screen.getByText("Clear my saves").closest("li")!;
   fireEvent.click(within(row).getByRole("button", { name: "Clear…" }));
   expect(calls.some((c) => c.method === "POST")).toBe(false); // nothing happens until you say yes
-  fireEvent.click(within(row).getByRole("button", { name: "Yes, delete" }));
+  const deleteButton = within(row).getByRole("button", { name: "Yes, delete" });
+  expect(deleteButton).toBeDisabled();
+  fireEvent.change(within(row).getByLabelText("Type DELETE to confirm"), { target: { value: "DELETE" } });
+  fireEvent.click(deleteButton);
   expect(await screen.findByText("Deleted 12 saves.")).toBeInTheDocument();
-  expect(calls.find((c) => c.method === "POST")?.body).toEqual({ what: "saves" });
+  expect(calls.find((c) => c.method === "POST")?.body).toEqual({ what: "saves", confirmation: "DELETE" });
   expect(within(screen.getByText("Clear my saves").closest("li")!).getByRole("button", { name: "Nothing to clear" })).toBeDisabled();
 });

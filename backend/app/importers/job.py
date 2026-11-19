@@ -9,6 +9,7 @@ older than a day are removed when the app starts.
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import threading
@@ -16,9 +17,9 @@ import time
 from pathlib import Path
 from typing import Any
 
-from app.ai.sorting import platform_links
+from app.ai.sorting import collections, platform_links
 from app.db.connection import Database
-from app.db.items_repo import upsert_item
+from app.db.items_repo import update_item, upsert_item
 from app.importers import PLATFORM_NAMES, parse_export
 from app.importers.source import ExportSource
 from app.jobs.runner import Handler, JobContext
@@ -67,21 +68,54 @@ def import_folder(ctx: JobContext, db: Database, folder: Path) -> dict[str, Any]
     total = sum(len(result.items) for result in results)
     done = 0
     platforms: list[dict[str, Any]] = []
-    with db.connect() as conn:
-        removed = {(row["platform"], row["url"]) for row in conn.execute("SELECT platform, url FROM removed_links")}
     for result in results:
-        new = 0
-        skipped = sum((item.platform, item.url) in removed for item in result.items)
+        new = skipped = filed = 0
         items = result.items
         for start in range(0, len(items), BATCH):
             ctx.check()
             with db.connect() as conn:
+                # Keep the purge check and insertion in one write transaction.
+                conn.execute("BEGIN IMMEDIATE")
+                exact, default = platform_links.import_routes(conn, result.platform)
                 for item in items[start : start + BATCH]:
-                    if (item.platform, item.url) in removed:
+                    identity = (item.platform, item.url)
+                    if conn.execute("SELECT 1 FROM removed_links WHERE platform = ? AND url = ?", identity).fetchone():
+                        skipped += 1
                         continue  # deleted for good by the user: stays gone
-                    _, is_new = upsert_item(conn, item)
+                    before = conn.execute(
+                        """SELECT platform_collection, platform_collections_json, deleted_at, gone_at
+                           FROM items WHERE platform = ? AND url = ?""",
+                        identity,
+                    ).fetchone()
+                    item_id, is_new = upsert_item(conn, item)
                     if is_new:
                         new += 1
+                    if before and (before["deleted_at"] or before["gone_at"]):
+                        continue
+                    added = {
+                        name.casefold(): name for value in item.platform_collections
+                        if (name := collections.clean_name(value))
+                    }
+                    confirms_legacy = (
+                        before is not None
+                        and before["platform_collections_json"] is None
+                        and before["platform_collection"] == item.platform_collection
+                        and bool(added)
+                    )
+                    previous = platform_links.member_names(before) if before else []
+                    if confirms_legacy:
+                        previous = list(added.values())
+                    for name in previous:
+                        added.pop(name.casefold(), None)
+                    if added or confirms_legacy:
+                        members = [*previous, *added.values()]
+                        update_item(conn, item_id, platform_collection=", ".join(members),
+                                    platform_collections_json=json.dumps(members, ensure_ascii=False))
+                    targets = dict.fromkeys(exact[key] for key in added if key in exact)
+                    if is_new and not targets and default is not None:
+                        targets[default] = None
+                    placements = sum(platform_links.add_from_platform(conn, item_id, target) for target in targets)
+                    filed += bool(placements)
             done += len(items[start : start + BATCH])
             ctx.progress(done, total, f"Saved {done:,} of {total:,}")
         platforms.append(
@@ -92,14 +126,12 @@ def import_folder(ctx: JobContext, db: Database, folder: Path) -> dict[str, Any]
                 "new": new,
                 "already_had": len(items) - new - skipped,
                 "deleted_before": skipped,
+                "filed": filed,
                 "collections": result.collections,
                 "notes": result.notes,
             }
         )
 
-    # Saves from platform collections the user linked (auto) get filed.
-    with db.connect() as conn:
-        platform_links.apply_all_auto(conn)
     new_total = sum(platform["new"] for platform in platforms)
     gone_total = sum(platform["deleted_before"] for platform in platforms)
     return {
@@ -107,7 +139,7 @@ def import_folder(ctx: JobContext, db: Database, folder: Path) -> dict[str, Any]
         + (f" {gone_total:,} you deleted for good stay deleted." if gone_total else ""),
         "found": total,
         "new": new_total,
-        "already_had": total - new_total,
+        "already_had": total - new_total - gone_total,
         "platforms": platforms,
     }
 

@@ -149,17 +149,11 @@ class AIService:
             "providers": providers,
         }
 
-    def check_ready(self) -> None:
+    def check_ready(self, provider: Provider | None = None) -> None:
         """Raise AIError (with a code the UI understands) if AI jobs can't run yet."""
-        pid = self.current_id()
-        info = provider_info(pid)
-        if info.needs_key and not self.keys.get(pid):
-            raise AIError(f"Add your {info.label} API key in Settings first.", "missing_key")
-        if not self.model_for(pid):
-            raise AIError(f"Pick a {info.label} model in Settings first.", "missing_model")
-        if pid == "ollama":
-            installed = self.provider(pid).list_models()  # raises if Ollama isn't running
-            if self.model_for(pid) not in installed:
-                raise AIError(
-                    f"The model {self.model_for(pid)} isn't downloaded yet.", "model_missing"
-                )
+        chosen = provider or self.provider()
+        if chosen.info.needs_key:
+            chosen.require_key()
+        chosen.require_model()
+        if chosen.info.id == "ollama" and chosen.model not in chosen.list_models():
+            raise AIError(f"The model {chosen.model} isn't downloaded yet.", "model_missing")

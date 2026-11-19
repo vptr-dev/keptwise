@@ -10,6 +10,7 @@ import { Button, Card, Notice } from "../../components/ui";
 import { toast } from "../../components/Toasts";
 import { errorCode, errorText } from "../../lib/api";
 import { isActive, onJobUpdate, useJobs, type Job } from "../../lib/jobs";
+import { useRoute } from "../../lib/router";
 import { announceChange, onOrganizeChange } from "../organize/organizeApi";
 import { CollectionSortOptions, TagOptions } from "./SortingSettings";
 import { sortingApi, type Collection, type LibraryCounts } from "./sortingApi";
@@ -171,12 +172,17 @@ export function ClearAi() {
 
 /** How the AI picks collections and tags: rules, how many, how sure. */
 export function AiOptions() {
+  const route = useRoute();
+  const showOptions = route.query.has("options");
+  useEffect(() => {
+    if (showOptions) document.getElementById("sort-options")?.scrollIntoView?.({ block: "start" });
+  }, [showOptions]);
   const [collections, setCollections] = useState<Collection[]>([]);
   useEffect(() => {
     sortingApi.collections().then((o) => setCollections(o.collections)).catch(() => undefined);
   }, []);
   return (
-    <details className="rounded-2xl border border-zinc-200 bg-white px-5 py-4 dark:border-zinc-800 dark:bg-zinc-900">
+    <details id="sort-options" open={showOptions || undefined} className="scroll-mt-4 rounded-2xl border border-zinc-200 bg-white px-5 py-4 dark:border-zinc-800 dark:bg-zinc-900">
       <summary className="cursor-pointer font-medium">Options: how the AI picks collections and tags, and your rules</summary>
       <div className="mt-5 space-y-8">
         <CollectionSortOptions collections={collections} />

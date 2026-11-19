@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [1.1.1]
+
+Guided tutorial, shared workflow settings, better import routing and safer library clearing.
+
 ## [1.1.0] - 2026-11-18
 
 Changes to organising and sorting.

@@ -73,6 +73,59 @@ test("first run shows the setup wizard, and Skip closes it", async () => {
   expect(calls.some((c) => c.method === "POST" && c.url === "/api/ai/setup-done")).toBe(true);
 });
 
+test("the tutorial follows setup and can be replayed from Settings", async () => {
+  vi.stubGlobal("EventSource", FakeEventSource);
+  window.location.hash = "#/library";
+  const calls = fakeBackend({
+    "GET /api/hello": { message: "Hello", version: "1" },
+    "GET /api/ui": { welcomed: false, tutorial_seen: false },
+    "PUT /api/ui": (body: unknown) => body,
+    "GET /api/ai": aiOverview({ setup_done: false }),
+    "POST /api/ai/setup-done": aiOverview({ setup_done: true }),
+  });
+  render(<App />);
+  const setup = await screen.findByRole("dialog", { name: "Set up Keptwise" });
+  expect(screen.queryByRole("dialog", { name: "Keptwise tutorial" })).not.toBeInTheDocument();
+  fireEvent.click(within(setup).getByRole("button", { name: "Skip" }));
+  fireEvent.click(await screen.findByRole("button", { name: "Skip for now" }));
+
+  const tour = await screen.findByRole("dialog", { name: "Keptwise tutorial" });
+  expect(within(tour).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "1");
+  fireEvent.click(within(tour).getByRole("button", { name: "Next chapter" }));
+  expect(within(tour).getByRole("heading", { name: "Bring in your first export" })).toHaveFocus();
+  fireEvent.click(within(tour).getByRole("button", { name: "Archive & Unsave" }));
+  expect(within(tour).getByRole("heading", { name: "Know what happens when you remove a save" })).toBeInTheDocument();
+
+  fireEvent.click(within(tour).getByRole("button", { name: "Close tutorial" }));
+  await vi.waitFor(() => expect(calls.some((c) => c.method === "PUT" && (c.body as { tutorial_seen?: boolean })?.tutorial_seen)).toBe(true));
+  expect(screen.queryByRole("dialog", { name: "Keptwise tutorial" })).not.toBeInTheDocument();
+  await act(async () => { window.location.hash = "#/settings?section=getting-started"; });
+  fireEvent.click(await screen.findByRole("button", { name: "Open guided tutorial" }));
+
+  const replay = await screen.findByRole("dialog", { name: "Keptwise tutorial" });
+  expect(within(replay).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "1");
+  fireEvent.click(within(replay).getByRole("button", { name: "Import" }));
+  fireEvent.click(within(replay).getByRole("button", { name: "Open Import" }));
+  expect(window.location.hash).toBe("#/import");
+  expect(screen.queryByRole("dialog", { name: "Keptwise tutorial" })).not.toBeInTheDocument();
+});
+
+test("an existing library can dismiss the new tutorial and keep its appearance", async () => {
+  vi.stubGlobal("EventSource", FakeEventSource);
+  const calls = fakeBackend({
+    "GET /api/hello": { message: "Hello", version: "1" },
+    "GET /api/ui": { welcomed: true, tutorial_seen: false, name: "Sam", theme: "dark" },
+    "PUT /api/ui": (body: unknown) => body,
+    "GET /api/ai": aiOverview(),
+  });
+  render(<App />);
+  const tour = await screen.findByRole("dialog", { name: "Keptwise tutorial" });
+  fireEvent.keyDown(tour, { key: "Escape" });
+  await vi.waitFor(() => expect(calls.find((c) => c.method === "PUT")?.body)
+    .toMatchObject({ tutorial_seen: true, welcomed: true, name: "Sam", theme: "dark" }));
+  expect(screen.queryByRole("dialog", { name: "Keptwise tutorial" })).not.toBeInTheDocument();
+});
+
 test("explains when the backend can't be reached", async () => {
   vi.stubGlobal("EventSource", FakeEventSource);
   vi.stubGlobal("fetch", vi.fn(async () => { throw new TypeError("Failed to fetch"); }));
@@ -198,6 +251,44 @@ test("the backend status is checked again later", async () => {
   } finally {
     vi.useRealTimers();
   }
+});
+
+test("setup and Settings share your automation choices", async () => {
+  vi.stubGlobal("EventSource", FakeEventSource);
+  window.location.hash = "#/library";
+  let settings = { auto_sort: false, auto_tag: false, auto_notes: false };
+  const calls = fakeBackend({
+    "GET /api/hello": { message: "Hello", version: "1" },
+    "GET /api/ai": aiOverview(),
+    "GET /api/ui": { welcomed: false },
+    "PUT /api/ui": (body: unknown) => body,
+    "GET /api/sorting/settings": () => ({ settings, kinds: [] }),
+    "PATCH /api/sorting/settings": (body: unknown) => {
+      settings = { ...settings, ...(body as Partial<typeof settings>) };
+      return { settings, kinds: [] };
+    },
+  });
+  render(<App />);
+  const setup = await screen.findByRole("dialog", { name: "Set up Keptwise" });
+  fireEvent.click(within(setup).getByRole("button", { name: "Make it mine" }));
+  fireEvent.click(within(setup).getByRole("button", { name: "Next" }));
+  fireEvent.click(within(setup).getByRole("button", { name: "Next" }));
+  const autoTag = await within(setup).findByRole("switch", { name: "Add tags automatically" });
+  expect(autoTag).not.toBeChecked();
+  fireEvent.click(autoTag);
+  await vi.waitFor(() => expect(autoTag).toBeChecked());
+  expect(calls.find((call) => call.method === "PATCH")?.body).toEqual({ auto_tag: true });
+  fireEvent.click(within(setup).getByRole("button", { name: "Next" }));
+  fireEvent.click(within(setup).getByRole("button", { name: "Look around first" }));
+
+  await act(async () => { window.location.hash = "#/settings?section=workflow"; });
+  const workflow = await screen.findByRole("region", { name: "Workflow" });
+  expect(await within(workflow).findByRole("switch", { name: "Add tags automatically" })).toBeChecked();
+  expect(within(workflow).getByRole("link", { name: "Choose where imports go" })).toHaveAttribute("href", "#/collections/links");
+  const autoSort = within(workflow).getByRole("switch", { name: "Put into collections automatically" });
+  fireEvent.click(autoSort);
+  await vi.waitFor(() => expect(autoSort).toBeChecked());
+  expect(settings).toEqual({ auto_sort: true, auto_tag: true, auto_notes: false });
 });
 
 test("the first time, a short setup makes the app yours, and Skip keeps the standard look", async () => {

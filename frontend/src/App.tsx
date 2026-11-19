@@ -11,6 +11,7 @@ import { icons } from "./components/icons";
 import { aiApi, useAiOverview } from "./features/ai/aiApi";
 import SetupWizard from "./features/ai/SetupWizard";
 import Welcome from "./features/look/Welcome";
+import GuidedTour from "./features/look/GuidedTour";
 import { libraryApi, type OverviewCounts } from "./features/library/libraryApi";
 import { onOrganizeChange } from "./features/organize/organizeApi";
 import { arrangeNav } from "./features/organize/tree";
@@ -86,6 +87,17 @@ export default function App() {
   const [aiReady, setAiReady] = useState<{ ready: boolean | null; message: string | null }>({ ready: null, message: null });
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
   const [wizardClosed, setWizardClosed] = useState(false);
+  const [tutorialRequested, setTutorialRequested] = useState(false);
+  const welcome = lookLoaded && look.welcomed === false;
+  const showWizard = lookLoaded && !welcome && overview !== null && !overview.setup_done && !wizardClosed;
+  const showTutorial = lookLoaded && !welcome && !showWizard &&
+    (tutorialRequested || (overview !== null && look.tutorial_seen === false));
+  const openTutorial = useCallback(() => setTutorialRequested(true), []);
+  const closeTutorial = (destination?: string) => {
+    setTutorialRequested(false);
+    if (!look.tutorial_seen) changeLook({ tutorial_seen: true });
+    if (destination) navigate(destination);
+  };
   const [counts, setCounts] = useState<OverviewCounts | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showCommands, setShowCommands] = useState(false);
@@ -194,6 +206,7 @@ export default function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (showTutorial) return;
       const key = event.key.toLowerCase();
       if ((event.ctrlKey && !event.shiftKey && key === "k") || (event.key === "/" && !typing(event.target) && !event.ctrlKey && !event.altKey)) {
         // Ctrl+K or "/" opens the command centre (Ctrl+K again closes it).
@@ -219,7 +232,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [cycleTheme, nav]);
+  }, [cycleTheme, nav, showTutorial]);
 
   useEffect(() => {
     // A file dropped outside the Import screen would make the window open
@@ -269,9 +282,10 @@ export default function App() {
       updates?.update_available && updates.can_install
         ? { id: "update", label: `Update Keptwise to ${updates.latest}`, icon: icons.download, words: "upgrade new version install", run: () => void updatesApi.install().catch(() => navigate("/settings?section=updates")) }
         : { id: "check-updates", label: "Check for updates", icon: icons.download, words: "upgrade new version", run: () => void updatesApi.checkNow().then(setUpdates).catch(() => undefined) },
+      { id: "tutorial", label: "Guided tutorial", icon: icons.bulb, words: "help getting started tour tutorial", run: openTutorial },
       { id: "shortcuts", label: "Keyboard shortcuts", icon: icons.keyboard, keys: "?", words: "keys help", run: () => setShowShortcuts(true) },
     ];
-  }, [nav, look.compact_sidebar, changeLook, setTheme, updates]);
+  }, [nav, look.compact_sidebar, changeLook, setTheme, updates, openTutorial]);
 
   const page = route.parts[0] === "home" || !route.parts[0] ? "library" : route.parts[0];
   const itemId = page === "item" ? Number(route.parts[1]) : NaN;
@@ -299,12 +313,11 @@ export default function App() {
         onLookChange={changeLook}
         updates={updates}
         onUpdatesChange={setUpdates}
+        onTutorial={openTutorial}
       />
     );
   else content = <LibraryPage cardSize={look.card_size} cardActions={look.card_actions} name={look.name} />;
 
-  const welcome = lookLoaded && look.welcomed === false; // first run: make it yours, then the AI
-  const showWizard = !welcome && overview !== null && !overview.setup_done && !wizardClosed;
   // An item page belongs to the Library in the sidebar.
   const activePath = page === "item" ? "/library" : page === "assistant" ? "/chat" : `/${page}`;
   const status: LiveStatus = {
@@ -337,12 +350,13 @@ export default function App() {
           {content}
         </div>
       </Layout>
-      {welcome && <Welcome look={look} onChange={changeLook} onTheme={setTheme} />}
+      {welcome && <Welcome look={look} onChange={changeLook} onTheme={setTheme} cloud={overview?.current_kind === "cloud"} />}
       {showWizard && (
         <SetupWizard overview={overview} onChange={setOverview} onFinish={() => setWizardClosed(true)} />
       )}
-      {showCommands && <CommandPalette actions={commands} onClose={() => setShowCommands(false)} />}
-      {showShortcuts && <ShortcutsDialog onClose={() => setShowShortcuts(false)} />}
+      {showTutorial && <GuidedTour onClose={closeTutorial} />}
+      {showCommands && !showTutorial && <CommandPalette actions={commands} onClose={() => setShowCommands(false)} />}
+      {showShortcuts && !showTutorial && <ShortcutsDialog onClose={() => setShowShortcuts(false)} />}
       <Toasts />
     </TipsProvider>
   );

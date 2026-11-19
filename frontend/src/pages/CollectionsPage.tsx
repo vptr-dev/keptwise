@@ -357,6 +357,8 @@ export default function CollectionsPage({ selection = null }: { selection?: stri
               counts={counts}
               spaceId={space?.id}
               spaceName={space?.name ?? "this space"}
+              collections={collections}
+              spaces={spaces}
               inside={opened}
               initial={view.type === "links" ? "platforms" : null}
             />

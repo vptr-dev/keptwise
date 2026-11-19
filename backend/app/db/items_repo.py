@@ -22,6 +22,7 @@ UPDATABLE = {
     "duration_s",
     "saved_at",
     "platform_collection",
+    "platform_collections_json",
     "external_id",
     "status",
     "error",
@@ -58,6 +59,7 @@ class NewItem:
     platform_collection: str | None = None
     external_id: str | None = None
     thumbnail_url: str | None = None
+    platform_collections: tuple[str, ...] = ()
 
 
 def upsert_item(conn: sqlite3.Connection, item: NewItem) -> tuple[int, bool]:

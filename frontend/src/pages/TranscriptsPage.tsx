@@ -15,11 +15,12 @@ import NotesStep from "../features/sorting/NotesStep";
 import Unsorted from "../features/sorting/Unsorted";
 import { errorText } from "../lib/api";
 import { isActive, onJobUpdate, useJobs, type Job } from "../lib/jobs";
-import { navigate } from "../lib/router";
+import { navigate, useRoute } from "../lib/router";
 
 const BATCH_SIZES = [5, 50, 200];
 
 export default function TranscriptsPage() {
+  const { query } = useRoute();
   const jobs = useJobs();
   const [overview, setOverview] = useState<EnrichOverview | null>(null);
   const [recent, setRecent] = useState<RecentVideo[]>([]);
@@ -177,10 +178,10 @@ export default function TranscriptsPage() {
           <Unsorted limit={5} />
           <AskAgain />
           <ClearAi />
-          <AiOptions />
         </>
       )}
 
+      {(!nothingImported || query.has("options")) && <AiOptions />}
       <RecentVideos videos={recent} />
     </div>
   );

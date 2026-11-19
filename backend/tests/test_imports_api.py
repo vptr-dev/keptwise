@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from app.ai.sorting import collections
 from app.api.imports import safe_parts
 from app.importers.job import remove_old_uploads
 from app.services import AppServices
@@ -89,6 +90,48 @@ def test_imported_items_are_stored_with_their_details(api: TestClient, svc: AppS
     assert row["author"] == "café_lisboa"
     assert row["platform_collection"] == "Recipes 🍝"
     assert row["status"] == "imported"
+
+
+def test_tiktok_destination_is_for_new_saves_only(api: TestClient, svc: AppServices) -> None:
+    with svc.db.connect() as conn:
+        inbox = collections.ensure(conn, "TikTok Inbox")
+    first = (SAMPLES / "tiktok_json" / "user_data_tiktok.json").read_bytes()
+    run_import(api, svc, {"user_data_tiktok.json": first})
+    destination = {"platform": "tiktok", "collection_id": inbox}
+    update = api.put("/api/platform-collections/default", json=destination)
+    assert update.status_code == 200
+    assert next(d for d in update.json()["import_destinations"] if d["platform"] == "tiktok")["collection_id"] == inbox
+
+    txt = (SAMPLES / "tiktok_txt" / "Activity" / "Favorite Videos.txt").read_bytes()
+    result = run_import(api, svc, {"Favorite Videos.txt": txt})["result"]
+    assert (result["new"], result["platforms"][0]["filed"]) == (1, 1)
+    with svc.db.connect() as conn:
+        filed = conn.execute("SELECT item_id FROM item_collections WHERE collection_id = ?", (inbox,)).fetchone()[0]
+        collections.remove(conn, filed, inbox)
+    assert run_import(api, svc, {"Favorite Videos.txt": txt})["result"]["platforms"][0]["filed"] == 0
+
+
+def test_known_membership_routes_new_and_newly_discovered_saves(api: TestClient, svc: AppServices) -> None:
+    with svc.db.connect() as conn:
+        inbox = collections.ensure(conn, "YouTube Inbox")
+        food = collections.ensure(conn, "Recipes")
+    assert api.put("/api/platform-collections/default", json={"platform": "youtube", "collection_id": inbox}).status_code == 200
+    assert api.put("/api/platform-collections", json={
+        "platform": "youtube", "name": "Cooking, quick", "collection_id": food,
+    }).status_code == 200
+
+    run_import(api, svc, {"Later-videos.csv": b"Video ID\nAbCdEfGhI01\n"})
+    recipes = {"Cooking, quick-videos.csv": b"Video ID\nAbCdEfGhI01\nAbCdEfGhI02\n"}
+    assert run_import(api, svc, recipes)["result"]["platforms"][0]["filed"] == 2
+    with svc.db.connect() as conn:
+        first, second = conn.execute("SELECT id, platform_collection FROM items ORDER BY id").fetchall()
+        assert first["platform_collection"] == "Later, Cooking, quick"
+        assert {link["id"] for link in collections.links_of(conn, first["id"])} == {inbox, food}
+        assert {link["id"] for link in collections.links_of(conn, second["id"])} == {food}
+        collections.remove(conn, first["id"], food)
+    assert run_import(api, svc, recipes)["result"]["platforms"][0]["filed"] == 0
+    by_name = {link["name"]: link for link in api.get("/api/platform-collections").json()["links"]}
+    assert by_name["Cooking, quick"]["count"] == 2 and "Cooking" not in by_name and "quick" not in by_name
 
 
 def test_unzipped_folder_with_all_four_platforms(api: TestClient, svc: AppServices) -> None:

@@ -3,7 +3,7 @@
 // download it again (or does so by itself next time).
 import { useCallback, useEffect, useState } from "react";
 
-import { Badge, Button, Card, Notice, formatBytes } from "../../components/ui";
+import { Badge, Button, Card, Notice, formatBytes, inputClass } from "../../components/ui";
 import { api, errorText } from "../../lib/api";
 import { announceChange } from "../organize/organizeApi";
 
@@ -21,6 +21,7 @@ type StorageList = {
   entries: StorageEntry[];
   data_folder: string;
   saves?: number; // how many saves there are to clear
+  has_library_data?: boolean;
   backups?: number; // database copies kept before updates
   backups_bytes?: number;
   cleared?: { saves?: number; backups?: number };
@@ -30,7 +31,8 @@ export type ClearWhat = "backups" | "saves" | "everything";
 export const storageApi = {
   list: () => api.get<StorageList>("/api/storage"),
   remove: (id: string) => api.del<StorageList>(`/api/storage/${encodeURIComponent(id)}`),
-  clear: (what: ClearWhat) => api.post<StorageList>("/api/storage/clear", { what }),
+  clear: (what: ClearWhat, confirmation: string) =>
+    api.post<StorageList>("/api/storage/clear", what === "backups" ? { what } : { what, confirmation }),
 };
 
 const GROUP_ORDER = ["AI models", "Speech to text", "Search", "Files"];
@@ -112,8 +114,7 @@ export default function StorageSettings() {
         {list && <span className="text-sm tabular-nums text-zinc-500 dark:text-zinc-400">{formatBytes(total)} in total</span>}
       </div>
       <p className="kw-tip mb-4 text-sm text-zinc-500 dark:text-zinc-400">
-        What Keptwise keeps on this PC. Delete models you don't need to free space; your saves and notes are never
-        touched, and anything that needs a deleted model offers to download it again.
+        Delete unused models or temporary files to free space. Manage your saved library separately under Clear my data.
       </p>
       {error && (
         <div className="mb-3">
@@ -154,25 +155,32 @@ const CLEAR_CHOICES: { what: ClearWhat; title: string; about: string; sure: stri
   {
     what: "saves",
     title: "Clear my saves",
-    about: "Every save with its transcript, notes, pictures, collections, tags, plans and chats.",
-    sure: "Delete all your saves, notes, collections, tags, plans and chats? This can't be undone.",
+    about: "All saves, transcripts, notes, pictures, collections, tags, plans, chats and Undo history.",
+    sure: "Permanently delete your library and its Undo history? Migration backups stay unless you clear them too.",
   },
   {
     what: "everything",
     title: "Clear everything",
     about: "Your saves, the backups and the log. Models and settings stay.",
-    sure: "Delete all your saves and every backup of them? Nothing will be left to bring them back.",
+    sure: "Permanently delete your library, local backups and Undo history? Settings and downloaded models stay.",
   },
 ];
 
 /** Deleting your own data for good: the backups, the saves, or both. */
 function ClearMyData({ list, onCleared, onError }: { list: StorageList; onCleared: (list: StorageList) => void; onError: (text: string | null) => void }) {
   const [asking, setAsking] = useState<ClearWhat | null>(null);
+  const [confirmation, setConfirmation] = useState("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const saves = list.saves ?? 0;
   const backups = list.backups ?? 0;
-  const has = (what: ClearWhat) => (what === "backups" ? backups > 0 : what === "saves" ? saves > 0 : saves > 0 || backups > 0);
+  const hasLibrary = list.has_library_data ?? saves > 0;
+  const has = (what: ClearWhat) => what === "backups" ? backups > 0 : hasLibrary || (what === "everything" && backups > 0);
+
+  function askToClear(what: ClearWhat | null) {
+    setConfirmation("");
+    setAsking(what);
+  }
 
   async function clear(what: ClearWhat) {
     setBusy(true);
@@ -180,13 +188,13 @@ function ClearMyData({ list, onCleared, onError }: { list: StorageList; onCleare
     setDone(null);
     onError(null);
     try {
-      const next = await storageApi.clear(what);
+      const next = await storageApi.clear(what, confirmation.trim());
       onCleared(next);
       const parts = [
         next.cleared?.saves !== undefined ? `${next.cleared.saves.toLocaleString()} save${next.cleared.saves === 1 ? "" : "s"}` : null,
         next.cleared?.backups !== undefined ? `${next.cleared.backups} backup${next.cleared.backups === 1 ? "" : "s"}` : null,
       ].filter(Boolean);
-      setDone(`Deleted ${parts.join(" and ")}.`);
+      setDone(next.cleared?.saves === 0 && !next.cleared.backups ? "Cleared the library." : `Deleted ${parts.join(" and ")}.`);
       announceChange(); // the sidebar numbers catch up
     } catch (e) {
       onError(errorText(e));
@@ -200,8 +208,9 @@ function ClearMyData({ list, onCleared, onError }: { list: StorageList; onCleare
       <h3 className="text-sm font-semibold">Clear my data</h3>
       <p className="kw-tip mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
         You have {saves.toLocaleString()} save{saves === 1 ? "" : "s"} and {backups} backup{backups === 1 ? "" : "s"}
-        {backups > 0 ? ` (${formatBytes(list.backups_bytes)})` : ""}. Clearing deletes for good; nothing is copied first.
+        {backups > 0 ? ` (${formatBytes(list.backups_bytes)})` : ""}. Clearing does not create a backup.
       </p>
+      <a href="#/archive" className="mt-2 inline-block text-sm underline">Restore or delete individual saves in Archive</a>
       {done && (
         <div className="mt-3">
           <Notice tone="success" onClose={() => setDone(null)}>{done}</Notice>
@@ -216,7 +225,7 @@ function ClearMyData({ list, onCleared, onError }: { list: StorageList; onCleare
                 <p className="text-xs text-zinc-500 dark:text-zinc-400">{choice.about}</p>
               </div>
               {asking !== choice.what && (
-                <Button size="sm" variant="secondary" disabled={busy || !has(choice.what)} onClick={() => setAsking(choice.what)}>
+                <Button size="sm" variant="secondary" disabled={busy || !has(choice.what)} onClick={() => askToClear(choice.what)}>
                   {has(choice.what) ? "Clear…" : "Nothing to clear"}
                 </Button>
               )}
@@ -224,10 +233,21 @@ function ClearMyData({ list, onCleared, onError }: { list: StorageList; onCleare
             {asking === choice.what && (
               <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-900 dark:bg-red-950/50 dark:text-red-200">
                 <span className="flex-1">{choice.sure}</span>
-                <Button size="sm" variant="danger" disabled={busy} onClick={() => void clear(choice.what)}>
+                {choice.what !== "backups" && (
+                  <label className="block w-full text-xs">
+                    Type DELETE to confirm
+                    <input
+                      className={inputClass + " mt-1 max-w-xs"}
+                      autoComplete="off"
+                      value={confirmation}
+                      onChange={(event) => setConfirmation(event.target.value)}
+                    />
+                  </label>
+                )}
+                <Button size="sm" variant="danger" disabled={busy || (choice.what !== "backups" && confirmation.trim() !== "DELETE")} onClick={() => void clear(choice.what)}>
                   Yes, delete
                 </Button>
-                <Button size="sm" variant="secondary" onClick={() => setAsking(null)}>
+                <Button size="sm" variant="secondary" onClick={() => askToClear(null)}>
                   Keep it
                 </Button>
               </div>

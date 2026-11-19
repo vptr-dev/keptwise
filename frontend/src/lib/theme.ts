@@ -1,10 +1,11 @@
 // How the app looks: light/dark theme, accent colour, text size, and a few
 // personal touches. The choices are saved by the backend (the app window keeps
 // no browser storage), and "system" follows the Windows setting live.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
-import { api } from "./api";
+import { toast } from "../components/Toasts";
+import { api, errorText } from "./api";
 
 export type ThemeChoice = "system" | "light" | "dark";
 export type Accent = "default" | "violet" | "indigo" | "blue" | "teal" | "emerald" | "rose" | "amber";
@@ -27,6 +28,7 @@ export type Look = {
   dismissed_tips: string[]; // tips the user closed
   card_actions: boolean; // quick buttons on a card when the mouse is over it
   welcomed?: boolean; // the first-run setup is done (false: show it)
+  tutorial_seen?: boolean;
   hide_tips?: boolean; // no tips, blurbs or descriptions (Settings -> Appearance)
   look_version?: number; // kept by the backend
 };
@@ -153,6 +155,8 @@ export function nextTheme(choice: ThemeChoice): ThemeChoice {
 export function useLook() {
   const [look, setLookState] = useState<Look>(DEFAULT_LOOK);
   const [loaded, setLoaded] = useState(false);
+  const latest = useRef(look);
+  const pending = useRef(Promise.resolve());
 
   useEffect(() => {
     applyLook(DEFAULT_LOOK); // until the saved choice arrives
@@ -160,7 +164,8 @@ export function useLook() {
       .get<Partial<Look>>("/api/ui")
       .then((saved) => {
         const start = (saved.start_page as string) === "home" ? "library" : saved.start_page; // Home was removed
-        setLookState({ ...DEFAULT_LOOK, ...saved, start_page: start ?? DEFAULT_LOOK.start_page });
+        latest.current = { ...DEFAULT_LOOK, ...saved, start_page: start ?? DEFAULT_LOOK.start_page };
+        setLookState(latest.current);
       })
       .catch(() => undefined) // keep the defaults
       .finally(() => {
@@ -187,10 +192,15 @@ export function useLook() {
 
   /** Change some choices and save them. */
   const changeLook = useCallback((change: Partial<Look>) => {
-    setLookState((old) => {
-      const next = { ...old, ...change };
-      api.put("/api/ui", next).catch(() => undefined);
-      return next;
+    const next = { ...latest.current, ...change };
+    latest.current = next;
+    setLookState(next);
+    pending.current = pending.current.then(async () => {
+      try {
+        await api.put("/api/ui", next);
+      } catch (error) {
+        if (latest.current === next) toast("Couldn’t save your appearance settings. " + errorText(error), { tone: "error" });
+      }
     });
   }, []);
 

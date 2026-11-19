@@ -59,7 +59,7 @@ const base = (extra: Record<string, unknown> = {}) => ({
   "GET /api/notes/overview": notesOverview(0),
   "GET /api/jobs": [],
   "GET /api/sorting/settings": { settings: sortSettings, kinds },
-  "PUT /api/sorting/settings": (body: unknown) => ({ settings: body, kinds }),
+  "PATCH /api/sorting/settings": (body: unknown) => ({ settings: { ...sortSettings, ...(body as object) }, kinds }),
   "GET /api/platform-collections": { links: [], room_left: 46 },
   ...extra,
 });
@@ -259,19 +259,19 @@ test("how the AI sorts is chosen here: each choice and the user's rules are save
   render(<CollectionSortOptions collections={tree as never} />);
   expect(await screen.findByText(/never makes new ones/)).toBeInTheDocument();
   fireEvent.click(await screen.findByRole("radio", { name: "Just one" }));
-  await waitFor(() => expect(calls.filter((c) => c.method === "PUT")).toHaveLength(1));
-  expect((calls.find((c) => c.method === "PUT")?.body as { max_collections: number }).max_collections).toBe(1);
+  await waitFor(() => expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(1));
+  expect((calls.find((c) => c.method === "PATCH")?.body as { max_collections: number }).max_collections).toBe(1);
 
   fireEvent.click(screen.getByRole("radio", { name: "Clear only" }));
-  await waitFor(() => expect(calls.filter((c) => c.method === "PUT")).toHaveLength(2));
-  expect((calls.filter((c) => c.method === "PUT")[1].body as { review_below: number }).review_below).toBe(0.9);
+  await waitFor(() => expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(2));
+  expect((calls.filter((c) => c.method === "PATCH")[1].body as { review_below: number }).review_below).toBe(0.9);
 
   fireEvent.change(screen.getByLabelText("Rule type"), { target: { value: "text" } });
   fireEvent.change(screen.getByLabelText("Word or phrase"), { target: { value: "Japan" } });
   fireEvent.change(screen.getByLabelText("Collection for this rule"), { target: { value: "Want to go" } });
   fireEvent.click(screen.getByRole("button", { name: "Add rule" }));
-  await waitFor(() => expect(calls.filter((c) => c.method === "PUT")).toHaveLength(3));
-  expect((calls.filter((c) => c.method === "PUT")[2].body as { rules: unknown[] }).rules).toEqual([
+  await waitFor(() => expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(3));
+  expect((calls.filter((c) => c.method === "PATCH")[2].body as { rules: unknown[] }).rules).toEqual([
     { field: "text", value: "Japan", collection: "Want to go", tag: "" },
   ]);
 
@@ -281,8 +281,8 @@ test("how the AI sorts is chosen here: each choice and the user's rules are save
   fireEvent.change(screen.getByLabelText("What the rule does"), { target: { value: "tag" } });
   fireEvent.change(screen.getByLabelText("Tag for this rule"), { target: { value: "#cooking" } });
   fireEvent.click(screen.getByRole("button", { name: "Add rule" }));
-  await waitFor(() => expect(calls.filter((c) => c.method === "PUT")).toHaveLength(4));
-  expect((calls.filter((c) => c.method === "PUT")[3].body as { rules: unknown[] }).rules[1]).toEqual({
+  await waitFor(() => expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(4));
+  expect((calls.filter((c) => c.method === "PATCH")[3].body as { rules: unknown[] }).rules[1]).toEqual({
     field: "author", value: "chef.sam", collection: "", tag: "cooking",
   });
 });
@@ -298,7 +298,7 @@ test("the Settings section keeps what the notes contain, and whether the AI look
   expect(screen.queryByText(/Safe to unsave/)).not.toBeInTheDocument();
   expect(screen.queryByRole("radio", { name: "Up to 10" })).not.toBeInTheDocument();
   fireEvent.click(pictures);
-  await waitFor(() => expect((calls.find((c) => c.method === "PUT")?.body as { look_at_pictures: boolean }).look_at_pictures).toBe(false));
+  await waitFor(() => expect((calls.find((c) => c.method === "PATCH")?.body as { look_at_pictures: boolean }).look_at_pictures).toBe(false));
 });
 
 test("Unsorted: accept where the AI thinks a save goes, or choose another", async () => {
@@ -335,11 +335,38 @@ test("bring from your platform: one button makes them here, and it says what hap
     "POST /api/platform-collections/transfer": { ...links, linked: 2, made: 1, filed: 4, no_room: 0 },
   }));
   render(<CollectionsPage selection="links" />);
-  expect(await screen.findByText(/TikTok's data only lists your collection names/)).toBeInTheDocument();
+  expect(await screen.findByText(/including TikTok’s, list collection names only/)).toBeInTheDocument();
   expect(screen.getByText("Recipes")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Make 2 collections here" }));
   await waitFor(() => expect(calls.find((c) => c.url === "/api/platform-collections/transfer")?.body).toEqual({ space_id: 1, parent_id: null }));
   expect(await screen.findByText("Made 1 collection in My saves, 1 already existed and was kept, 4 saves put in them.")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Go to Sort" }));
   expect(window.location.hash).toBe("#/transcripts");
+});
+
+test("sets a TikTok default and maps an imported playlist independently", async () => {
+  const links = {
+    links: [{
+      platform: "youtube", platform_name: "YouTube", name: "Recipes", count: 4,
+      membership_known: true, collection_id: null, collection_name: null, mode: "auto", filed: 0,
+    }],
+    import_destinations: [{ platform: "tiktok", platform_name: "TikTok", collection_id: null }],
+    room_left: 46,
+  };
+  const calls = fakeBackend(base({
+    "GET /api/platform-collections": links,
+    "PUT /api/platform-collections/default": links,
+    "PUT /api/platform-collections": { ...links, filed: 4 },
+  }));
+  render(<CollectionsPage selection="links" />);
+  const destination = await screen.findByLabelText("TikTok");
+  await waitFor(() => expect(destination).not.toBeDisabled());
+  fireEvent.change(destination, { target: { value: "3" } });
+  expect(await screen.findByText("TikTok import destination updated.")).toBeInTheDocument();
+  expect(calls.find((call) => call.url.endsWith("/default"))?.body).toEqual({ platform: "tiktok", collection_id: 3 });
+  fireEvent.click(screen.getByText("Manage collection links (1)"));
+  fireEvent.change(screen.getByLabelText("Destination for YouTube Recipes"), { target: { value: "3" } });
+  expect(await screen.findByText("Filed 4 saves.")).toBeInTheDocument();
+  expect(calls.find((call) => call.url === "/api/platform-collections" && call.method === "PUT")?.body)
+    .toEqual({ platform: "youtube", name: "Recipes", collection_id: 3, mode: "auto" });
 });

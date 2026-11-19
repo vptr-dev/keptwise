@@ -18,11 +18,6 @@ from app.ai.http import HttpClient, HttpError
 from app.enrich.speech_models import MODELS as SPEECH_MODELS
 from app.search.embedder import downloaded_model_dir
 
-# Jobs that read the models or the sound files. Nothing is deleted while one runs.
-BUSY_JOB_KINDS = {"enrich", "notes", "sort", "search_index", "ollama_pull"}
-BUSY_STATUSES = {"queued", "running", "paused"}
-
-
 class StorageError(Exception):
     """A plain-English reason something couldn't be deleted."""
 
@@ -186,8 +181,8 @@ def delete_ollama(http: HttpClient, base_url: str, name: str) -> None:
 # Everything the user saved or made. Settings and the spaces themselves stay.
 SAVES_TABLES = (
     "chat_messages", "chats", "plan_tasks", "plan_items", "plans", "item_tags", "tags", "item_collections",
-    "collections", "platform_links", "removed_links", "search_passages", "search_indexed", "search_fts",
-    "embeddings", "ai_results", "transcripts", "items", "jobs",
+    "collections", "platform_links", "platform_import_destinations", "removed_links", "search_passages", "search_indexed", "search_fts",
+    "embeddings", "ai_results", "transcripts", "items", "jobs", "undo_log", "undo_steps",
 )
 
 

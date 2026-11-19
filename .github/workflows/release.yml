@@ -4,11 +4,10 @@
 #   git tag v1.2.0
 #   git push origin v1.2.0
 #
-# The release notes are that version's line in CHANGELOG.md (keep it to a
-# sentence or two), followed by how to install.
+# The release description contains the installation steps.
 #
-# A tag with a dash, like v0.2.0-dev.1, makes a dev build instead: a
-# pre-release with a one-line note, which the app's update check ignores.
+# A tag with a dash, like v0.2.0-dev.1, makes a dev build instead:
+# a prerelease that the app's update check ignores.
 #
 # It can also be started by hand (Actions tab -> Release -> Run workflow, or
 # `gh workflow run release.yml -f tag=v1.2.0`) to build the chosen branch and
@@ -74,19 +73,13 @@ jobs:
       - name: Write the release notes
         shell: pwsh
         run: |
-          if ($env:RELEASE_TAG.Contains("-")) {
-            Set-Content -Path release-notes.md -Value "Dev build for testing." -Encoding utf8
-            exit 0
-          }
-          $version = $env:RELEASE_TAG.TrimStart("v")
-          $changelog = Get-Content -Raw CHANGELOG.md
-          $pattern = "(?ms)^## \[?$([regex]::Escape($version))\]?[^\n]*\n(.*?)(?=^## |\z)"
-          $notes = if ($changelog -match $pattern) { $Matches[1].Trim() } else { "Keptwise $version" }
-          $notes += "`n`n## Install`n`n" +
-            "1. Download **Keptwise-Setup.exe** below and open it.`n" +
-            "2. If Windows says *Windows protected your PC*, click **More info**, then **Run anyway**.`n" +
-            "3. Already have Keptwise? Press **Update now** in the app instead. Your saves and settings are kept."
-          Set-Content -Path release-notes.md -Value $notes -Encoding utf8
+          @'
+          ## Install
+
+          1. Download **Keptwise-Setup.exe** from Assets below.
+          2. Close Keptwise if it is open, then run the installer and follow the prompts.
+          3. Open **Keptwise** from the Windows Start menu.
+          '@ | Set-Content -Path release-notes.md -Encoding utf8
 
       - name: Publish the release
         shell: pwsh
@@ -96,7 +89,7 @@ jobs:
           # --verify-tag: never create a new tag here, only use one that exists.
           # Build the list this way: "$x = if (...) { @(...) }" turns a one-item list back into a plain
           # string, and splatting a string passes its letters one by one.
-          $extra = @()
-          if ($env:RELEASE_TAG.Contains("-")) { $extra += "--prerelease" }
+          $extra = @("--latest")
+          if ($env:RELEASE_TAG.Contains("-")) { $extra = @("--prerelease", "--latest=false") }
           gh release create "$env:RELEASE_TAG" dist/Keptwise-Setup.exe --verify-tag `
             --title "Keptwise $env:RELEASE_TAG" --notes-file release-notes.md @extra

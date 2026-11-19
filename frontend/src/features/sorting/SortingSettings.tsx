@@ -1,7 +1,7 @@
 // The AI's choices. How it picks collections and tags lives on the Sort page
 // (where everything the AI does happens); what the notes contain is a
 // Settings section.
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Button, Card, Notice, Segmented, inputClass } from "../../components/ui";
 import { errorText } from "../../lib/api";
@@ -31,23 +31,26 @@ export function useSortingSettings() {
   const [data, setData] = useState<SortingSettingsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const queue = useRef(Promise.resolve());
 
   useEffect(() => {
     sortingApi.getSettings().then(setData).catch((e) => setError(errorText(e)));
   }, []);
 
-  async function save(changes: Partial<Settings>) {
-    if (!data) return;
-    const next = { ...data.settings, ...changes };
-    setData({ ...data, settings: next });
-    setError(null);
-    try {
-      setData(await sortingApi.saveSettings(next));
-      setSaved(true);
-      window.setTimeout(() => setSaved(false), 1500);
-    } catch (e) {
-      setError(errorText(e));
-    }
+  function save(changes: Partial<Settings>): Promise<void> {
+    if (!data) return Promise.resolve();
+    const pending = queue.current.then(async () => {
+      setError(null);
+      setSaved(false);
+      try {
+        setData(await sortingApi.saveSettings(changes));
+        setSaved(true);
+      } catch (e) {
+        setError(errorText(e));
+      }
+    });
+    queue.current = pending;
+    return pending;
   }
   return { data, error, saved, save };
 }
@@ -125,12 +128,6 @@ export function TagOptions() {
   );
 }
 
-/** One on/off choice of the AI's, as a switch: [is it on (null while loading), change it]. */
-export function useAiSwitch(key: "auto_tag" | "auto_sort" | "auto_notes" | "look_at_pictures", fallback = true): [boolean | null, (on: boolean) => void] {
-  const { data, save } = useSortingSettings();
-  return [data ? (data.settings[key] ?? fallback) : null, (on) => void save({ [key]: on })];
-}
-
 export default function SortingSettings() {
   const { data, error, saved, save } = useSortingSettings();
 
@@ -188,11 +185,12 @@ export default function SortingSettings() {
                 <textarea
                   className={`${inputClass} mt-2 min-h-20`}
                   aria-label={`What a ${kind.label.toLowerCase()} video turns into`}
+                  key={settings.kind_steps[kind.id] ?? kind.default}
                   defaultValue={settings.kind_steps[kind.id] ?? kind.default}
                   maxLength={600}
                   onBlur={(event) => {
                     if (event.target.value.trim() !== settings.kind_steps[kind.id]) {
-                      save({ kind_steps: { ...settings.kind_steps, [kind.id]: event.target.value } });
+                      save({ kind_steps: { [kind.id]: event.target.value } });
                     }
                   }}
                 />
@@ -200,7 +198,7 @@ export default function SortingSettings() {
                   <button
                     type="button"
                     className="mt-1 text-xs text-indigo-600 hover:underline dark:text-indigo-400"
-                    onClick={() => save({ kind_steps: { ...settings.kind_steps, [kind.id]: kind.default } })}
+                    onClick={() => save({ kind_steps: { [kind.id]: kind.default } })}
                   >
                     Back to the suggested text
                   </button>

@@ -86,8 +86,27 @@ def test_refuses_odd_or_protected_entries(api: TestClient, svc: AppServices) -> 
 def test_waits_while_a_job_runs(api: TestClient, svc: AppServices) -> None:
     job_id = svc.jobs.create("enrich", "Transcripts", {})
     svc.jobs.update(job_id, status="running")
+    for n in range(35):
+        newer = svc.jobs.create("import", f"Newer job {n}", {})
+        svc.jobs.update(newer, status="done")
     response = api.delete("/api/storage/audio")
     assert response.status_code == 409 and "Transcripts" in response.json()["detail"]
+
+
+def test_clearing_waits_for_import_and_works_with_collections_only(api: TestClient, svc: AppServices) -> None:
+    assert api.post("/api/collections", json={"name": "Trips"}).status_code == 200
+    assert api.get("/api/storage").json()["has_library_data"] is True
+    assert api.get("/api/storage").json()["saves"] == 0
+    job = svc.jobs.create("import", "Importing an export", {})
+    confirm = {"what": "saves", "confirmation": "DELETE"}
+    assert api.post("/api/storage/clear", json=confirm).status_code == 409
+    svc.jobs.update(job, status="done")
+    assert api.post("/api/storage/clear", json={"what": "saves"}).status_code == 400
+    assert api.get("/api/undo").json()["undo"] is not None
+    assert api.post("/api/storage/clear", json=confirm).json()["has_library_data"] is False
+    assert api.get("/api/undo").json() == {"undo": None, "redo": None}
+    with svc.db.connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM undo_log").fetchone()[0] == 0
 
 
 def test_old_data_folder_is_renamed(tmp_path: Path) -> None:
@@ -177,7 +196,7 @@ def test_clear_my_data_backups_saves_or_everything(api: TestClient, svc: AppServ
     assert after["cleared"] == {"backups": 1} and after["backups"] == 0 and after["saves"] == 3
 
     # The saves: everything saved or made goes, settings stay.
-    after = api.post("/api/storage/clear", json={"what": "saves"}).json()
+    after = api.post("/api/storage/clear", json={"what": "saves", "confirmation": "DELETE"}).json()
     assert after["cleared"] == {"saves": 3} and after["saves"] == 0
     assert api.get("/api/library/items").json()["total"] == 0
     assert api.get("/api/collections").json()["collections"] == []
@@ -188,7 +207,7 @@ def test_clear_my_data_backups_saves_or_everything(api: TestClient, svc: AppServ
 
     # Everything at once, and the app still works afterwards.
     fill()
-    after = api.post("/api/storage/clear", json={"what": "everything"}).json()
+    after = api.post("/api/storage/clear", json={"what": "everything", "confirmation": "DELETE"}).json()
     assert after["cleared"] == {"saves": 3, "backups": 1} and after["saves"] == 0 and after["backups"] == 0
     assert api.post("/api/collections", json={"name": "New start"}).status_code == 200
     assert api.post("/api/storage/clear", json={"what": "the lot"}).status_code == 422

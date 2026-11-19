@@ -45,6 +45,13 @@ class JobsRepo:
             ).fetchall()
         return [_to_dict(row) for row in rows]
 
+    def active_title(self) -> str | None:
+        with self._db.connect() as conn:
+            row = conn.execute(
+                "SELECT title FROM jobs WHERE status IN ('queued', 'running', 'paused') ORDER BY id LIMIT 1"
+            ).fetchone()
+        return str(row["title"]) if row else None
+
     def update(self, job_id: int, **fields: Any) -> None:
         unknown = set(fields) - _UPDATABLE
         if unknown:

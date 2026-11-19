@@ -3,7 +3,7 @@
 // and tags that fit. By default those picks are suggestions you approve in
 // Unsorted; two switches let it file and tag by itself instead. Start a
 // batch here, or let notes start by themselves whenever transcripts finish.
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import JobCard from "../../components/JobCard";
 import { icons } from "../../components/icons";
@@ -11,7 +11,7 @@ import { Button, Card, Notice } from "../../components/ui";
 import { errorCode, errorText } from "../../lib/api";
 import { isActive, onJobUpdate, useJobs, type Job } from "../../lib/jobs";
 import { navigate } from "../../lib/router";
-import { useAiSwitch } from "./SortingSettings";
+import WorkflowControls from "./WorkflowControls";
 import { sortingApi, type NotesOverview } from "./sortingApi";
 
 const BATCH_SIZES = [20, 50, 200];
@@ -23,9 +23,6 @@ export default function NotesStep({ transcribing = false }: { transcribing?: boo
   const [started, setStarted] = useState<Job | null>(null);
   const [problem, setProblem] = useState<{ text: string; code: string | null } | null>(null);
   const [pending, setPending] = useState<{ text: string; go: () => void } | null>(null);
-  const [auto, setAuto] = useAiSwitch("auto_notes", false);
-  const [autoSort, setAutoSort] = useAiSwitch("auto_sort", false);
-  const [autoTag, setAutoTag] = useAiSwitch("auto_tag", false);
 
   const refresh = useCallback(() => {
     sortingApi.overview().then(setNotes).catch(() => undefined);
@@ -102,33 +99,7 @@ export default function NotesStep({ transcribing = false }: { transcribing?: boo
           <p className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">A cloud AI does at most {limit} at a time, so each batch stays cheap.</p>
         )}
         <div className="mt-4 space-y-3 border-t border-zinc-100 pt-4 dark:border-zinc-800">
-          <Switch
-            label="Put into collections automatically (best fit)"
-            on={autoSort}
-            onChange={setAutoSort}
-            hint={
-              autoSort
-                ? "The AI puts each save in the collection that fits best. Ones it isn't sure about wait in Unsorted."
-                : "Off: every save waits in Unsorted with the AI's suggestion, for you to accept or change."
-            }
-          />
-          <Switch
-            label="Add tags automatically"
-            on={autoTag}
-            onChange={setAutoTag}
-            hint={autoTag ? "The AI's tags go straight on." : "Off: the AI's tags are suggestions you add with one click."}
-          />
-          <Switch
-            label="Write notes by themselves when transcripts finish"
-            on={cloud ? false : auto}
-            disabled={cloud}
-            onChange={setAuto}
-            hint={
-              cloud
-                ? "Only with an AI on this PC: a cloud AI costs money, so it always waits for you to start it."
-                : `Then one press on “Get transcripts” does everything.${transcribing && auto ? " Notes will start when this transcripts job ends." : ""}`
-            }
-          />
+          <WorkflowControls cloud={cloud} transcribing={transcribing} />
         </div>
       </Card>
 
@@ -159,36 +130,5 @@ export default function NotesStep({ transcribing = false }: { transcribing?: boo
       )}
       {current && <JobCard job={current} name="AI notes job" />}
     </>
-  );
-}
-
-function Switch({
-  label,
-  hint,
-  on,
-  onChange,
-  disabled = false,
-}: {
-  label: string;
-  hint: ReactNode;
-  on: boolean | null;
-  onChange: (on: boolean) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <label className="flex items-start gap-3">
-      <input
-        type="checkbox"
-        role="switch"
-        className="mt-0.5 h-4 w-4 accent-indigo-600"
-        checked={on ?? false}
-        disabled={on === null || disabled}
-        onChange={(e) => onChange(e.target.checked)}
-      />
-      <span>
-        <span className="block text-sm font-medium">{label}</span>
-        <span className="kw-tip block text-xs text-zinc-500 dark:text-zinc-400">{hint}</span>
-      </span>
-    </label>
   );
 }

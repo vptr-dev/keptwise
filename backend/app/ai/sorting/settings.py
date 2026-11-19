@@ -6,7 +6,7 @@ here, with the recommended answer as its default.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -163,7 +163,10 @@ class SortingSettings(BaseModel):
 
 
 def load(settings: SettingsRepo) -> SortingSettings:
-    raw = settings.get(KEY, {})
+    return _parse(settings.get(KEY, {}))
+
+
+def _parse(raw: Any) -> SortingSettings:
     try:
         return SortingSettings.model_validate(raw or {})
     except ValueError:
@@ -172,3 +175,17 @@ def load(settings: SettingsRepo) -> SortingSettings:
 
 def save(settings: SettingsRepo, value: SortingSettings) -> None:
     settings.set(KEY, value.model_dump())
+
+
+def update(settings: SettingsRepo, changes: dict[str, Any]) -> dict[str, Any]:
+    unknown = changes.keys() - SortingSettings.model_fields.keys()
+    if unknown:
+        raise ValueError("Unknown sorting setting.")
+    return settings.update(KEY, lambda raw: _merge(_parse(raw), changes))
+
+
+def _merge(current: SortingSettings, changes: dict[str, Any]) -> dict[str, Any]:
+    values = current.model_dump() | changes
+    if isinstance(changes.get("kind_steps"), dict):
+        values["kind_steps"] = current.kind_steps | changes["kind_steps"]
+    return SortingSettings.model_validate(values).model_dump()

@@ -49,6 +49,8 @@ def test_a_deleted_save_moves_to_the_archive_and_comes_back(api: TestClient, svc
     back = api.patch(f"/api/items/{one}", json={"deleted": False}).json()
     assert back["deleted"] is False and [c["name"] for c in back["collections"]] == ["Meals"] and back["tags"] == ["pasta"]
     assert library_ids(api) == [one, two] and library_ids(api, "&archive=deleted") == []
+    assert back["safe_to_unsave"] is False
+    assert api.get("/api/unsave").json()["items"] == []
 
 
 def test_unsaved_saves_are_listed_in_the_archive_and_stay_in_the_library(api: TestClient, svc: AppServices) -> None:
@@ -104,6 +106,7 @@ def test_an_import_never_brings_back_what_was_deleted_for_good(api: TestClient, 
     api.delete(f"/api/items/{first}")
     after = run_import(api, svc, {"tiktok.zip": archive})
     assert after["result"]["new"] == 0 and after["result"]["platforms"][0]["deleted_before"] == 1
+    assert after["result"]["already_had"] == 2
     assert after["message"].endswith("1 you deleted for good stay deleted.")
     assert len(library_ids(api)) == 2 and library_ids(api, "&archive=deleted") == []
 
