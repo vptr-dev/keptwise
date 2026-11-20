@@ -91,10 +91,15 @@ test("the tutorial follows setup and can be replayed from Settings", async () =>
 
   const tour = await screen.findByRole("dialog", { name: "Keptwise tutorial" });
   expect(within(tour).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "1");
+  fireEvent.click(within(tour).getByRole("button", { name: "Try sample import" }));
+  expect(within(tour).getByText(/Two sample saves added/)).toBeInTheDocument();
   fireEvent.click(within(tour).getByRole("button", { name: "Next chapter" }));
-  expect(within(tour).getByRole("heading", { name: "Bring in your first export" })).toHaveFocus();
-  fireEvent.click(within(tour).getByRole("button", { name: "Archive & Unsave" }));
-  expect(within(tour).getByRole("heading", { name: "Know what happens when you remove a save" })).toBeInTheDocument();
+  expect(within(tour).getByRole("heading", { name: "Try sorting a save" })).toHaveFocus();
+  fireEvent.click(within(tour).getByRole("button", { name: "Get transcript" }));
+  fireEvent.click(within(tour).getByRole("button", { name: "Write notes" }));
+  fireEvent.change(within(tour).getByRole("combobox"), { target: { value: "Weeknight meals" } });
+  fireEvent.click(within(tour).getByRole("button", { name: "Approve" }));
+  expect(within(tour).getByText("Filed in Weeknight meals.")).toBeInTheDocument();
 
   fireEvent.click(within(tour).getByRole("button", { name: "Close tutorial" }));
   await vi.waitFor(() => expect(calls.some((c) => c.method === "PUT" && (c.body as { tutorial_seen?: boolean })?.tutorial_seen)).toBe(true));
@@ -104,7 +109,6 @@ test("the tutorial follows setup and can be replayed from Settings", async () =>
 
   const replay = await screen.findByRole("dialog", { name: "Keptwise tutorial" });
   expect(within(replay).getByRole("progressbar")).toHaveAttribute("aria-valuenow", "1");
-  fireEvent.click(within(replay).getByRole("button", { name: "Import" }));
   fireEvent.click(within(replay).getByRole("button", { name: "Open Import" }));
   expect(window.location.hash).toBe("#/import");
   expect(screen.queryByRole("dialog", { name: "Keptwise tutorial" })).not.toBeInTheDocument();

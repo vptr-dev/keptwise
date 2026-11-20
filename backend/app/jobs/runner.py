@@ -169,7 +169,7 @@ class JobRunner:
                 # Run it again from the start; the handler skips finished work.
                 control.cancel.clear()
                 self._update(job_id, status="queued", error=None, finished_at=None,
-                             message="Resuming…")
+                             message="Resuming…", notice_dismissed=0)
                 self._queue.put(job_id)
 
     @contextmanager

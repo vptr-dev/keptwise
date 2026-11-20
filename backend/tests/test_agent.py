@@ -187,3 +187,52 @@ def test_changes_sent_with_a_lookup_wait_for_its_results(api: TestClient, svc: A
     ask(api, "tag my pasta saves dinner")
     assert "were not run" in script.prompts[1]
     assert api.get("/api/library/items?tag=dinner").json()["total"] == 1
+
+
+def test_plain_find_request_returns_cards_without_needing_ai(api: TestClient, svc: AppServices) -> None:
+    from app.db.items_repo import update_item
+
+    found, archived, gone, _ = saves(svc, "Pasta sauce", "Pasta soup", "Pasta bake", "Leg day")
+    with svc.db.connect() as conn:
+        update_item(conn, archived, deleted_at="2026-11-19T10:00:00Z")
+        update_item(conn, gone, gone_at="2026-11-19T10:00:00Z")
+
+    last = ask(api, "Can you find my videos about pasta?")["messages"][-1]
+    assert last["content"] == "Found 1 matching save."
+    assert [entry["item"]["id"] for entry in last["sources"]] == [found]
+    assert last["actions"] is None
+
+    chat = api.post("/api/assistant/chats", json={"tool": "find"}).json()
+    direct = api.post(f"/api/assistant/chats/{chat['id']}/messages", json={"content": "leg day"})
+    assert direct.status_code == 200 and len(direct.json()["messages"][-1]["sources"]) == 1
+
+
+def test_read_only_agent_lookups_return_save_cards(api: TestClient, svc: AppServices, net: FakeNet) -> None:
+    pasta, _ = saves(svc, "Pasta night", "Leg day")
+    Script(net, [
+        {"mode": "act", "actions": [{"method": "GET", "path": "/api/search?q=pasta"}]},
+        {"mode": "done"},
+    ])
+    last = ask(api, "Where did I put the pasta recipe?")["messages"][-1]
+    assert last["content"] == "Here are the saves I found."
+    assert [source["item_id"] for source in last["sources"]] == [pasta]
+
+
+def test_ask_about_these_uses_previous_result_cards(api: TestClient, svc: AppServices, net: FakeNet) -> None:
+    pasta, gym = saves(svc, "Pasta night", "Leg day")
+    chat = ask(api, "Find my videos about pasta")
+    scripted = Script(net, [{"found": True, "answer": "Pasta night [1].", "sources": [1]}])
+    reply = api.post(f"/api/assistant/chats/{chat['id']}/messages", json={"content": "Summarise these."})
+    assert reply.status_code == 200, reply.text
+    assert reply.json()["messages"][-1]["sources"][0]["item_id"] == pasta
+    assert "Leg day" not in scripted.prompts[0] and gym != pasta
+
+
+def test_find_can_list_newest_saves_and_distinguishes_questions(api: TestClient, svc: AppServices) -> None:
+    from app.search.assistant import find_query
+
+    older, newer = saves(svc, "Older recipe", "Newer recipe")
+    last = ask(api, "Show me my newest saves")["messages"][-1]
+    assert [source["item_id"] for source in last["sources"]] == [newer, older]
+    assert find_query("Show me how to cook it") is None
+    assert find_query("Find my videos about how to cook rice") == "how to cook rice"

@@ -150,3 +150,21 @@ def test_api_dev_stats(api: TestClient) -> None:
     stats = api.get("/api/dev/stats").json()
     assert stats["tables"]["items"] == 0
     assert stats["data_dir"].endswith("data")
+
+
+def test_dismiss_notice_persists_without_removing_the_job(api: TestClient, svc: AppServices) -> None:
+    svc.runner.register("demo", lambda ctx: {"message": "Resumed"})
+    job_id = svc.jobs.create("demo", "Demo", {})
+    url = f"/api/jobs/{job_id}"
+    assert api.post(url + "/dismiss-notice").status_code == 409
+
+    svc.jobs.update(job_id, status="cancelled", message="Cancelled")
+    assert api.post(url + "/dismiss-notice").status_code == 204
+    saved = api.get(url).json()
+    assert saved["notice_dismissed"] and saved["status"] == "cancelled" and saved["message"] == "Cancelled"
+    assert api.post(url + "/dismiss-notice").status_code == 204
+
+    svc.runner.start()
+    assert api.post(url + "/resume").status_code == 200
+    new_run = wait_for_status(svc, job_id, "done")
+    assert not new_run["notice_dismissed"] and new_run["message"] == "Resumed"

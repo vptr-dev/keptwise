@@ -246,7 +246,7 @@ class SearchService:
             return self._vectors
 
     def similar(self, query: str, limit: int = 30, min_score: float = MIN_SIMILARITY,
-                near_best: float = NEAR_BEST) -> list[SimilarHit]:
+                near_best: float = NEAR_BEST, allowed_ids: set[int] | None = None) -> list[SimilarHit]:
         """The items with a passage closest in meaning to the query (best passage each)."""
         embedder = self.embedder()
         if embedder is None or not query.strip():
@@ -256,10 +256,13 @@ class SearchService:
             if not vectors.rows:
                 return []
             scores = vectors.matrix @ embedder.embed_query(query.strip())
-            if len(scores):
-                min_score = max(min_score, float(scores.max()) - near_best)
+            candidates = np.arange(len(scores)) if allowed_ids is None else np.fromiter(
+                (i for i, row in enumerate(vectors.rows) if row[0] in allowed_ids), dtype=np.intp
+            )
+            if len(candidates):
+                min_score = max(min_score, float(scores[candidates].max()) - near_best)
             best: dict[int, SimilarHit] = {}
-            for index in np.argsort(-scores):
+            for index in candidates[np.argsort(-scores[candidates])]:
                 score = float(scores[index])
                 if score < min_score or len(best) >= limit:
                     break
@@ -277,10 +280,12 @@ class SearchService:
                     hit.part_length = int({"about": row["a"], "transcript": row["t"], "notes": row["n"]}[hit.part] or 0)
         return list(best.values())
 
-    def hybrid(self, query: str, limit: int = 30) -> list[HybridHit]:
+    def hybrid(self, query: str, limit: int = 30, allowed_ids: set[int] | None = None) -> list[HybridHit]:
+        if allowed_ids is not None and not allowed_ids:
+            return []
         with self.db.connect() as conn:
-            words = keyword_search(conn, query, limit=limit)
-        similar = self.similar(query, limit=limit)
+            words = keyword_search(conn, query, limit=limit, allowed_ids=allowed_ids)
+        similar = self.similar(query, limit=limit, allowed_ids=allowed_ids)
         merged: dict[int, HybridHit] = {}
         for rank, hit in enumerate(words):
             entry = merged.setdefault(hit.item_id, HybridHit(hit.item_id, 0.0))

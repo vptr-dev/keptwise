@@ -357,10 +357,6 @@ html[data-text-size="large"] {
 
 /* The window has no Windows title bar, so the app's own top bar must not
    select text when dragged. */
-.pywebview-drag-region {
-  user-select: none;
-}
-
 /* ---------- small motions ---------- */
 
 /* Tiles (folders, saves) arrive one after another: set --i to the tile's place. */

@@ -24,7 +24,7 @@ class Target(BaseModel):
 
 
 class NewChat(BaseModel):
-    tool: Literal["ask", "summary", "plan", "shopping", "compare", "takeaways"] = "ask"
+    tool: assistant.Tool = "ask"
     target: Target | None = None
     title: str | None = Field(default=None, max_length=80)
 

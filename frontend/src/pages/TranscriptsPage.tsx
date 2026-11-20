@@ -4,9 +4,10 @@
 // Then: ask it again, or clear what it did. The other pages only show your
 // saves and let you change them by hand. Each step runs in batches with
 // live progress and Pause/Resume/Cancel.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 
-import { Button, Card, Notice } from "../components/ui";
+import { icons } from "../components/icons";
+import { Button, Notice } from "../components/ui";
 import EnrichJobCard from "../features/enrich/EnrichJobCard";
 import { enrichApi, type EnrichOverview, type EnrichTarget, type RecentVideo } from "../features/enrich/enrichApi";
 import RecentVideos from "../features/enrich/RecentVideos";
@@ -71,19 +72,28 @@ export default function TranscriptsPage() {
   const nothingImported = counts !== undefined && counts.total === 0 && !counts.gone;
 
   return (
-    <div className="mx-auto max-w-4xl space-y-8 px-8 py-10">
+    <div className="mx-auto max-w-4xl space-y-4 px-4 py-8 lg:px-8">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Sort</h1>
         <p className="kw-tip mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Everything the AI does happens here. The app reads each saved video's page and writes down what's said
-          (on this PC, for free); the AI writes notes and suggests where each save goes and how to tag it; you approve.
-          The other pages are yours to look through and change by hand.
+          Get transcripts, write notes, then approve where your saves go.
         </p>
       </header>
 
-      {counts && (
-        <Card className="p-4">
-          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+      {error && <Notice tone="error">{error}</Notice>}
+
+      {nothingImported ? (
+        <Notice>
+          Nothing to do yet.{" "}
+          <button type="button" className="font-medium underline" onClick={() => navigate("/import")}>
+            Import your saves
+          </button>{" "}
+          first.
+        </Notice>
+      ) : (
+        counts && (
+          <SortSection step={1} title="Get transcripts" defaultOpen>
+            <dl className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             <Count label="Waiting" value={counts.waiting} testId="count-waiting" />
             <Count label="Details ready" value={counts.done} testId="count-done" />
             <Count label="No speech detected" value={counts.no_speech} testId="count-no-speech" title="The speech model found no words. The clip may still have sound." />
@@ -98,7 +108,7 @@ export default function TranscriptsPage() {
           </dl>
           {(counts.failed_reasons ?? []).length > 0 && (
             <details className="mt-3 text-sm">
-              <summary className="cursor-pointer text-xs font-medium text-zinc-500 dark:text-zinc-400">Why some couldn't be read</summary>
+              <summary className="cursor-pointer text-xs font-medium text-zinc-500 dark:text-zinc-400">Read errors</summary>
               <ul className="mt-2 space-y-1 text-xs text-zinc-600 dark:text-zinc-400">
                 {(counts.failed_reasons ?? []).map((reason) => (
                   <li key={reason.text} className="flex gap-2">
@@ -109,28 +119,8 @@ export default function TranscriptsPage() {
               </ul>
             </details>
           )}
-        </Card>
-      )}
-
-      {error && <Notice tone="error">{error}</Notice>}
-
-      {nothingImported ? (
-        <Notice>
-          Nothing to do yet.{" "}
-          <button type="button" className="font-medium underline" onClick={() => navigate("/import")}>
-            Import your saves
-          </button>{" "}
-          first.
-        </Notice>
-      ) : (
-        counts && (
-          <Card>
-            <h2 className="flex items-center gap-2 font-medium">
-              <Step n={1} />
-              Get transcripts
-            </h2>
-            <p className="kw-tip mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-              Newest saves first. You can pause, cancel or close the app at any time; finished videos are kept.
+            <p className="kw-tip mt-3 text-sm text-zinc-500 dark:text-zinc-400">
+              Start with a few saves. This runs on your PC.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
               {BATCH_SIZES.filter((size) => size < counts.waiting).map((size) => (
@@ -176,7 +166,7 @@ export default function TranscriptsPage() {
                 </button>
               </p>
             )}
-          </Card>
+          </SortSection>
         )
       )}
 
@@ -184,37 +174,43 @@ export default function TranscriptsPage() {
 
       {!nothingImported && (
         <>
-          <StepTitle n={2} />
-          <NotesStep transcribing={running !== undefined} />
-          <StepTitle n={3} />
-          <Unsorted limit={5} />
-          <AskAgain />
-          <ClearAi />
+          <SortSection step={2} title="Write notes" defaultOpen>
+            <NotesStep transcribing={running !== undefined} />
+          </SortSection>
+          <SortSection step={3} title="Review suggestions">
+            <Unsorted limit={5} />
+          </SortSection>
         </>
       )}
 
-      {(!nothingImported || query.has("options")) && <AiOptions />}
-      <RecentVideos videos={recent} />
+      {(!nothingImported || query.has("options")) && (
+        <SortSection key={query.has("options") ? "options-open" : "options"} title="Sorting options" defaultOpen={query.has("options")}>
+          <AiOptions />
+          <AskAgain />
+          <ClearAi />
+        </SortSection>
+      )}
+      {recent.length > 0 && <SortSection title="Recent transcripts"><RecentVideos videos={recent} embedded /></SortSection>}
     </div>
   );
 }
 
-function Step({ n }: { n: number }) {
+function SortSection({
+  title, step, defaultOpen = false, children,
+}: { title: string; step?: number; defaultOpen?: boolean; children: ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen);
   return (
-    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-xs font-semibold text-white" aria-hidden="true">
-      {n}
-    </span>
-  );
-}
-
-/** A thin line with the step's number, between the steps. */
-function StepTitle({ n }: { n: number }) {
-  return (
-    <div className="flex items-center gap-3" aria-hidden="true">
-      <Step n={n} />
-      <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{n === 2 ? "Then the notes" : "Then approve where they go"}</span>
-      <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
-    </div>
+    <details open={open} onToggle={(event) => {
+      if (event.target === event.currentTarget) setOpen(event.currentTarget.open);
+    }}
+      className="group kw-glass rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+      <summary className="flex cursor-pointer list-none items-center gap-3 rounded-2xl px-4 py-3 font-medium focus-visible:outline-2 focus-visible:outline-indigo-500">
+        {step !== undefined && <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-indigo-100 text-xs text-indigo-800 dark:bg-indigo-950 dark:text-indigo-200">{step}</span>}
+        <span className="flex-1">{title}</span>
+        <span className="h-4 w-4 -rotate-90 text-zinc-500 transition-transform group-open:rotate-0" aria-hidden="true">{icons.down}</span>
+      </summary>
+      <div className="space-y-3 px-4 pb-4">{children}</div>
+    </details>
   );
 }
 

@@ -128,7 +128,7 @@ export default function ImportPage() {
             Choose folder
           </Button>
         </div>
-        <a href="#/collections/links" className="mt-3 inline-block text-sm underline">Choose where new saves go</a>
+        <a href="#/collections/links" className="mt-3 inline-block text-sm underline">Import collections or pick a destination</a>
         <input
           ref={fileInput}
           type="file"

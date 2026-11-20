@@ -62,7 +62,7 @@ export function useContextMenu(): [(event: ReactMouseEvent, items: MenuItem[], t
 function MenuBox({ open, onClose, onPanel }: { open: Open; onClose: () => void; onPanel: (panel: NonNullable<Open["panel"]>) => void }) {
   const box = useRef<HTMLDivElement>(null);
   const [place, setPlace] = useState<{ top: number; left: number } | null>(null);
-  const width = open.panel?.width ?? 236;
+  const width = Math.min(open.panel?.width ?? 280, window.innerWidth - 16);
 
   useLayoutEffect(() => {
     const height = box.current?.offsetHeight ?? 300;
@@ -206,8 +206,8 @@ function Row({ item, onClose, onPanel }: { item: MenuItem; onClose: () => void; 
       }}
     >
       <span className={`h-4 w-4 shrink-0 ${item.danger ? "" : "text-zinc-500"}`}>{checkable ? (item.checked ? icons.check : null) : item.icon}</span>
-      <span className="flex-1 truncate">{item.label}</span>
-      {item.hint && <span className="text-xs text-zinc-400">{item.hint}</span>}
+      <span className="min-w-0 flex-1">{item.label}</span>
+      {item.hint && <span className="max-w-[40%] shrink-0 text-right text-xs text-zinc-500">{item.hint}</span>}
     </button>
   );
 }

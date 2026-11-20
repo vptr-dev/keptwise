@@ -128,81 +128,32 @@ def run_smoke_test(window: webview.Window, result: dict[str, bool]) -> None:
 
 
 class WindowControls:
-    """The app draws its own title bar (minimise, maximise, close, and the
-    resize handles), because the window has no Windows title bar. The page
-    calls these through window.pywebview.api."""
-
-    MIN_WIDTH, MIN_HEIGHT = 800, 600
+    """F11 uses the native window's fullscreen transition."""
 
     def __init__(self) -> None:
-        # Underscores: these aren't shown to the page. launcher.main sets _window.
         self._window: webview.Window | None = None
-        self._maximized = False  # only used where Windows can't be asked
+        self._fullscreen_lock = threading.Lock()
+        self._maximize_on_exit = False
 
-    def _is_maximized_now(self) -> bool:
-        """Ask Windows whether the window is maximised (it can also change by
-        Win+Up, or by dragging the window to the top of the screen)."""
-        state = getattr(getattr(self._window, "native", None), "WindowState", None)
-        return str(state) == "Maximized" if state is not None else self._maximized
-
-    def _keep_taskbar_visible(self) -> None:
-        """A window without a title bar would cover the taskbar when maximised.
-        Limit it to the screen's work area (Windows only; elsewhere do nothing)."""
-        form = getattr(self._window, "native", None)
-        if form is None or not hasattr(form, "MaximizedBounds"):
+    def toggle_fullscreen(self) -> None:
+        window = self._window
+        if window is None:
             return
-        try:
-            from System import Action  # type: ignore[import-not-found]
-            from System.Drawing import Rectangle  # type: ignore[import-not-found]
-            from System.Windows.Forms import Screen  # type: ignore[import-not-found]
+        with self._fullscreen_lock:
+            native = getattr(window, "native", None)
+            if getattr(native, "is_fullscreen", False):
+                window.toggle_fullscreen()
+                if self._maximize_on_exit:
+                    window.maximize()
+                self._maximize_on_exit = False
+                return
 
-            def apply() -> None:
-                screen = Screen.FromControl(form)
-                work, whole = screen.WorkingArea, screen.Bounds
-                # The position counts from the screen's own corner.
-                form.MaximizedBounds = Rectangle(work.X - whole.X, work.Y - whole.Y, work.Width, work.Height)
-
-            form.Invoke(Action(apply))
-        except Exception as error:  # noqa: BLE001 - never stop the button working
-            print(f"Couldn't fit the window to the work area: {error}")
-
-    def set_accent(self, accent: str, dark: bool) -> bool:
-        """The page tells us its accent colour and theme. The taskbar icon
-        stays the plain white logo whatever they are (the user's choice)."""
-        if self._window is None or not isinstance(accent, str):
-            return False
-        return set_window_icon(self._window, WINDOW_TITLE, ICON_FILE)
-
-    def minimize(self) -> None:
-        if self._window:
-            self._window.minimize()
-
-    def toggle_maximize(self) -> bool:
-        """Maximise, or go back to the normal size. Returns True if now maximised."""
-        if self._window:
-            if self._is_maximized_now():
-                self._window.restore()
-                self._maximized = False
-            else:
-                self._keep_taskbar_visible()
-                self._window.maximize()
-                self._maximized = True
-        return self._is_maximized_now()
-
-    def is_maximized(self) -> bool:
-        return self._is_maximized_now()
-
-    def close(self) -> None:
-        if self._window:
-            self._window.destroy()
-
-    def size(self) -> list[int]:
-        return [self._window.width, self._window.height] if self._window else [0, 0]
-
-    def resize(self, width: float, height: float) -> None:
-        """Called while the user drags the window's right or bottom edge."""
-        if self._window and not self._is_maximized_now():
-            self._window.resize(max(self.MIN_WIDTH, int(width)), max(self.MIN_HEIGHT, int(height)))
+            self._maximize_on_exit = str(getattr(native, "WindowState", "")) == "Maximized"
+            # WinForms remembers the bounds it sees on entry and always exits
+            # to Normal. Give it the restored bounds, then reapply maximize on exit.
+            if self._maximize_on_exit:
+                window.restore()
+            window.toggle_fullscreen()
 
 
 def parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -278,10 +229,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         wait_until_ready(base_url)
         print(f"Keptwise {__version__} is running at {base_url}")
-        # No Windows title bar: the app's own top bar has the buttons and is
-        # where the window is dragged from. Only elements marked with the
-        # "pywebview-drag-region" class drag it, not the buttons inside them.
-        webview.settings["DRAG_REGION_DIRECT_TARGET_ONLY"] = True
+        # Let Windows manage resizing, moving and snapping.
         set_app_id()  # the taskbar shows Keptwise, not Python
         controls = WindowControls()
         window = webview.create_window(
@@ -289,13 +237,11 @@ def main(argv: list[str] | None = None) -> int:
             url=f"{base_url}/session/start?token={token}",
             width=1200,
             height=800,
-            min_size=(WindowControls.MIN_WIDTH, WindowControls.MIN_HEIGHT),
-            frameless=True,
-            easy_drag=False,
+            min_size=(680, 480),
+            resizable=True,
             # Without this, pywebview cancels every drag that starts on a link
             # or picture, which breaks dragging sidebar pages, folders and saves.
             draggable=True,
-            shadow=True,
             js_api=controls,
         )
         controls._window = window  # noqa: SLF001 - kept private so the page can't see it

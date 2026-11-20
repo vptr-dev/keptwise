@@ -1,17 +1,28 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { createPortal } from "react-dom";
 
-import Logo from "../../components/Logo";
 import { icons } from "../../components/icons";
-import { Button } from "../../components/ui";
+import Logo from "../../components/Logo";
+import { Badge, Button, inputClass } from "../../components/ui";
 import { CHAPTERS } from "./tourChapters";
+
+const PRACTICE_SAVES = [
+  { title: "Lemon pasta", text: "Save a cup of pasta water for the sauce." },
+  { title: "Weekend in Edinburgh", text: "Start at the castle, then walk to the gardens." },
+];
 
 export default function GuidedTour({ onClose }: { onClose: (destination?: string) => void }) {
   const [index, setIndex] = useState(0);
+  const [imported, setImported] = useState(false);
+  const [phase, setPhase] = useState(0);
+  const [folder, setFolder] = useState("Recipes");
+  const [query, setQuery] = useState("");
   const titleRef = useRef<HTMLHeadingElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const chapter = CHAPTERS[index];
   const last = index === CHAPTERS.length - 1;
+  const matches = PRACTICE_SAVES.filter((save) =>
+    (save.title + " " + save.text).toLowerCase().includes(query.trim().toLowerCase()));
 
   useEffect(() => {
     const before = document.activeElement;
@@ -33,7 +44,7 @@ export default function GuidedTour({ onClose }: { onClose: (destination?: string
       return;
     }
     if (event.key !== "Tab") return;
-    const targets = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not([disabled])"));
+    const targets = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("button:not([disabled]), input, select"));
     const first = targets[0];
     const final = targets.at(-1);
     if (event.shiftKey && (document.activeElement === first || document.activeElement === titleRef.current)) {
@@ -52,71 +63,81 @@ export default function GuidedTour({ onClose }: { onClose: (destination?: string
         aria-modal="true"
         aria-labelledby="tour-name"
         onKeyDown={onKeyDown}
-        className="kw-rise flex max-h-full w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-2xl sm:rounded-3xl dark:border-zinc-700 dark:bg-zinc-900"
+        className="kw-rise flex max-h-full w-full max-w-2xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-zinc-900"
       >
-        <header className="flex shrink-0 items-center gap-3 border-b border-zinc-200 px-4 py-3 sm:px-6 dark:border-zinc-800">
-          <Logo className="h-9 w-9 shrink-0" />
-          <div className="min-w-0 flex-1">
-            <h2 id="tour-name" className="font-semibold tracking-tight">Keptwise tutorial</h2>
-            <p className="text-xs text-zinc-600 dark:text-zinc-400">Chapter {index + 1} of {CHAPTERS.length}</p>
-          </div>
+        <header className="flex shrink-0 items-center gap-3 px-5 pt-5 sm:px-7">
+          <Logo className="h-8 w-8 shrink-0" />
+          <h2 id="tour-name" className="flex-1 font-semibold">Keptwise tutorial</h2>
           <Button variant="ghost" size="sm" onClick={() => onClose()}>Close tutorial</Button>
         </header>
-        <div
-          role="progressbar"
-          aria-label="Tutorial progress"
-          aria-valuemin={0}
-          aria-valuemax={CHAPTERS.length}
-          aria-valuenow={index + 1}
-          className="h-1 shrink-0 bg-zinc-100 dark:bg-zinc-800"
-        >
-          <div className="h-full bg-indigo-600 transition-[width] motion-reduce:transition-none" style={{ width: (index + 1) * 100 / CHAPTERS.length + "%" }} />
+        <div role="progressbar" aria-label="Tutorial progress" aria-valuemin={0} aria-valuemax={CHAPTERS.length}
+          aria-valuenow={index + 1} className="mx-5 mt-4 flex gap-1 sm:mx-7">
+          {CHAPTERS.map(({ id }, n) => (
+            <span key={id} className={"h-1 flex-1 rounded-full " + (n <= index ? "bg-indigo-600" : "bg-zinc-200 dark:bg-zinc-700")} />
+          ))}
         </div>
-        <div className="grid min-h-0 flex-1 md:grid-cols-[13rem_minmax(0,1fr)]">
-          <nav aria-label="Tutorial chapters" className="flex gap-1 overflow-x-auto border-b border-zinc-200 bg-zinc-50 p-2 md:block md:overflow-y-auto md:border-b-0 md:border-r md:p-3 dark:border-zinc-800 dark:bg-zinc-950/70">
-            {CHAPTERS.map((entry, position) => (
-              <Button key={entry.id} variant="ghost" size="sm" aria-current={index === position ? "step" : undefined}
-                className={"mb-0.5 justify-start md:w-full " + (index === position ? "bg-indigo-50 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-200" : "")}
-                onClick={() => setIndex(position)}>
-                <span className="h-4 w-4">{icons[entry.icon]}</span>
-                {entry.name}
-              </Button>
-            ))}
-          </nav>
-          <div ref={contentRef} className="min-h-0 overflow-y-auto px-4 py-5 sm:p-7">
-            <h3 ref={titleRef} tabIndex={-1} className="text-2xl font-semibold tracking-tight outline-none">{chapter.title}</h3>
-            <p className="mt-2 max-w-prose text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">{chapter.intro}</p>
-            <div className="mt-5 grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(13rem,0.75fr)]">
-              <ol className="space-y-3" aria-label="Steps to try">
-                {chapter.steps.map(([label, instruction], position) => (
-                  <li key={label} className="flex gap-3 rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
-                    <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-indigo-50 text-xs font-semibold text-indigo-800 dark:bg-indigo-950 dark:text-indigo-200">{position + 1}</span>
-                    <div>
-                      <p className="text-sm font-semibold">{label}</p>
-                      <p className="mt-1 text-sm leading-relaxed text-zinc-600 dark:text-zinc-400">{instruction}</p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-              <aside aria-label="Example" className="overflow-hidden rounded-2xl border border-indigo-100 bg-indigo-50/60 dark:border-indigo-950 dark:bg-indigo-950/30">
-                <div className="border-b border-indigo-100 p-4 dark:border-indigo-950">
-                  <span className="grid h-10 w-10 place-items-center rounded-xl bg-white p-2 text-indigo-700 shadow-sm dark:bg-zinc-900 dark:text-indigo-300">{icons[chapter.icon]}</span>
-                  <p className="mt-3 text-xs font-medium text-indigo-700 dark:text-indigo-300">Example</p>
-                  <h4 className="mt-0.5 text-sm font-semibold">{chapter.preview.title}</h4>
+        <div ref={contentRef} className="min-h-0 overflow-y-auto px-5 py-5 sm:px-7">
+          <h3 ref={titleRef} tabIndex={-1} className="text-2xl font-semibold tracking-tight outline-none">{chapter.title}</h3>
+          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-300">{chapter.intro}</p>
+
+          <div className="mt-5 space-y-3 rounded-2xl bg-indigo-50 p-4 dark:bg-indigo-950/40">
+            {chapter.id === "import" && (
+              <>
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="h-5 w-5 text-indigo-600 dark:text-indigo-300">{icons.import}</span>
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">Sample export.zip</span>
+                  <Button size="sm" variant="secondary" disabled={imported} onClick={() => setImported(true)}>Try sample import</Button>
                 </div>
-                <dl className="space-y-2 p-3">
-                  {chapter.preview.rows.map(([label, description]) => (
-                    <div key={label + description} className="rounded-lg bg-white px-3 py-2 shadow-sm dark:bg-zinc-900">
-                      <dt className="text-xs font-medium text-zinc-600 dark:text-zinc-400">{label}</dt>
-                      <dd className="mt-0.5 text-sm">{description}</dd>
-                    </div>
+                {imported && <p role="status" className="text-sm">Two sample saves added. Next, sort one of them.</p>}
+              </>
+            )}
+            {chapter.id === "sort" && (
+              <>
+                <div className="flex flex-wrap items-center gap-3">
+                  <span className="font-medium">Lemon pasta</span>
+                  <Badge tone={phase === 3 ? "green" : "indigo"}>
+                    {["Waiting", "Transcript ready", "Ready to review", "Filed"][phase]}
+                  </Badge>
+                </div>
+                {phase >= 1 && <p className="text-sm"><b>Transcript</b> “Save a cup of pasta water for the sauce.”</p>}
+                {phase >= 2 && <p className="text-sm"><b>Note</b> Keep a cup of pasta water before draining.</p>}
+                {phase < 2 && <Button size="sm" onClick={() => setPhase(phase + 1)}>
+                  {phase === 0 ? "Get transcript" : "Write notes"}
+                </Button>}
+                {phase === 2 && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="flex items-center gap-2 text-sm">
+                      Suggested collection
+                      <select value={folder} onChange={(event) => setFolder(event.target.value)}
+                        className="rounded-lg border border-zinc-300 bg-white px-2 py-1 dark:border-zinc-600 dark:bg-zinc-900">
+                        <option>Recipes</option>
+                        <option>Weeknight meals</option>
+                      </select>
+                    </label>
+                    <Button size="sm" onClick={() => setPhase(3)}>Approve</Button>
+                  </div>
+                )}
+                {phase === 3 && <p role="status" className="text-sm">Filed in {folder}.</p>}
+              </>
+            )}
+            {chapter.id === "search" && (
+              <>
+                <input type="search" className={inputClass} value={query} onChange={(event) => setQuery(event.target.value)}
+                  aria-label="Search practice saves" placeholder="Try “pasta water”" />
+                <ul aria-live="polite" className="space-y-2">
+                  {matches.map((save) => (
+                    <li key={save.title} className="rounded-xl bg-white px-3 py-2 text-sm dark:bg-zinc-900">
+                      <p className="font-medium">{save.title}</p>
+                      <p className="text-zinc-600 dark:text-zinc-400">{save.text}</p>
+                    </li>
                   ))}
-                </dl>
-              </aside>
-            </div>
+                  {matches.length === 0 && <li className="text-sm">No sample saves matched.</li>}
+                </ul>
+              </>
+            )}
           </div>
         </div>
-        <footer className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-zinc-200 bg-white px-4 py-3 sm:px-6 dark:border-zinc-800 dark:bg-zinc-900">
+        <footer className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-zinc-200 px-5 py-4 sm:px-7 dark:border-zinc-800">
           <Button variant="ghost" disabled={index === 0} onClick={() => setIndex(index - 1)}>Back</Button>
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="secondary" onClick={() => onClose(chapter.destination[1])}>{chapter.destination[0]}</Button>

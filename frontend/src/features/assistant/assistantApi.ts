@@ -2,7 +2,7 @@
 import { api } from "../../lib/api";
 import type { LibraryItem } from "../library/libraryApi";
 
-export type ToolId = "ask" | "summary" | "plan" | "shopping" | "compare" | "takeaways";
+export type ToolId = "ask" | "find" | "summary" | "plan" | "shopping" | "compare" | "takeaways";
 // "items": saves the user picked (right-click picked saves -> Ask the AI Assistant).
 export type Target = { type: "all" | "collection" | "tag" | "plan" | "items"; id?: number; name?: string; ids?: number[] };
 
@@ -56,6 +56,13 @@ export const TOOLS: ToolInfo[] = [
     id: "ask",
     label: "Ask anything",
     blurb: "Any question, answered only from what you saved.",
+    needsGroup: false,
+    prompt: () => "",
+  },
+  {
+    id: "find",
+    label: "Find saves",
+    blurb: "Search for a topic, title or creator and get the matching videos.",
     needsGroup: false,
     prompt: () => "",
   },

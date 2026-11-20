@@ -69,14 +69,12 @@ export default function NotesStep({ transcribing = false }: { transcribing?: boo
       <Card>
         <div className="flex flex-wrap items-center gap-2">
           <span className="h-5 w-5 text-indigo-500">{icons.sparkle}</span>
-          <h2 className="font-medium">Write the notes</h2>
-          <span className="ml-auto text-xs text-zinc-500">Using {notes?.ai_label ?? "…"}</span>
+          <span className="text-xs text-zinc-500">Using {notes?.ai_label ?? "…"}</span>
         </div>
         <p className="kw-tip mt-1 text-sm text-zinc-500 dark:text-zinc-400" data-testid="notes-waiting">
           {waiting > 0
-            ? `${waiting.toLocaleString()} save${waiting === 1 ? " has" : "s have"} a transcript and ${waiting === 1 ? "is" : "are"} waiting for notes.`
-            : "Every save with a transcript has its notes."}{" "}
-          The AI writes a title, a summary, the key details and the steps, and picks the collection and tags that fit.
+            ? `${waiting.toLocaleString()} save${waiting === 1 ? "" : "s"} ready for notes.`
+            : "No saves waiting for notes."}
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           {sizes.map((size) => (

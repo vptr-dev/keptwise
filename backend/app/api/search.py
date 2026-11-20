@@ -71,21 +71,18 @@ def search(
     query = q.strip()[:200]
     limit = max(1, min(limit, 100))
     chosen = scope.current(svc.settings)
-    hits = svc.search.hybrid(query, limit=limit * 3) if query else []
-    if hits:
-        # Only the chosen platform's saves, and never deleted ones.
-        scoped, scoped_params = scope.where(chosen, "items")
+    hits = []
+    if query:
+        scoped, params = scope.where(chosen, "items")
         with svc.db.connect() as conn:
-            marks = ",".join("?" for _ in hits)
-            keep = {int(r["id"]) for r in conn.execute(
-                f"SELECT id FROM items WHERE {scoped} AND id IN ({marks})", (*scoped_params, *[h.item_id for h in hits])
-            )}
-        hits = [h for h in hits if h.item_id in keep][:limit]
+            keep = {int(row["id"]) for row in conn.execute(f"SELECT id FROM items WHERE {scoped}", params)}
+        hits = svc.search.hybrid(query, limit=limit * 3, allowed_ids=keep)
     if mode == "captions":  # only words found in the video's caption
         hits = [h for h in hits if h.keyword and any(f.part == "about" for f in h.keyword.fields)]
     elif mode != "both":
         wanted = "words" if mode == "words" else "similar"
         hits = [h for h in hits if wanted in h.sources]
+    hits = hits[:limit]
     with svc.db.connect() as conn:
         cards = cards_by_id(conn, [h.item_id for h in hits])
     return {

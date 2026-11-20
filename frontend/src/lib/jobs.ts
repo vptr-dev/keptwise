@@ -25,6 +25,7 @@ export type Job = {
   result: Record<string, unknown> | null;
   created_at: string;
   finished_at: string | null;
+  notice_dismissed?: boolean;
 };
 
 export const ACTIVE_STATUSES: JobStatus[] = ["queued", "running", "paused"];
@@ -98,4 +99,5 @@ export const jobActions = {
   pause: (id: number) => api.post<Job>(`/api/jobs/${id}/pause`),
   resume: (id: number) => api.post<Job>(`/api/jobs/${id}/resume`),
   cancel: (id: number) => api.post<Job>(`/api/jobs/${id}/cancel`),
+  dismiss: (id: number) => api.post<void>(`/api/jobs/${id}/dismiss-notice`),
 };

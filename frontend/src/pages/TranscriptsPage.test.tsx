@@ -37,6 +37,7 @@ test("starting the next 5 shows live progress, pause, and the summary", async ()
     "GET /api/jobs": [],
     "POST /api/enrich/start": enrichJob({}),
     "POST /api/jobs/7/pause": enrichJob({ status: "paused" }),
+    "POST /api/jobs/7/dismiss-notice": null,
   });
 
   render(<TranscriptsPage />);
@@ -74,6 +75,9 @@ test("starting the next 5 shows live progress, pause, and the summary", async ()
   });
   expect(await screen.findByText("Finished 5 videos: 3 transcribed, 2 with no speech.")).toBeInTheDocument();
   expect(screen.getByText(/running on the processor/)).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss job notice" }));
+  expect(screen.queryByText(/Finished 5 videos/)).not.toBeInTheDocument();
+  expect(calls.some((call) => call.url === "/api/jobs/7/dismiss-notice")).toBe(true);
 });
 
 test("recent videos show the transcript, no speech, or why it failed", async () => {
@@ -89,7 +93,7 @@ test("recent videos show the transcript, no speech, or why it failed", async () 
   });
 
   render(<TranscriptsPage />);
-  expect(await screen.findByText("Recently done")).toBeInTheDocument();
+  fireEvent.click(await screen.findByText("Recent transcripts"));
   expect(screen.getByText(/Boil the water first, then add salt/)).toBeInTheDocument();
   expect(screen.getByText("took 9.8 s")).toBeInTheDocument();
   expect(screen.getByText("TikTok · @pasta.chef · 0:46")).toBeInTheDocument();
@@ -172,7 +176,7 @@ test("notes are written on the same page: next 200, live progress, and by themse
   const calls = fakeBackend(pipeline({ "POST /api/notes/start": notesJob({}) }));
   render(<TranscriptsPage />);
   expect(await screen.findByRole("heading", { name: "Sort" })).toBeInTheDocument();
-  expect(await screen.findByTestId("notes-waiting")).toHaveTextContent("230 saves have a transcript and are waiting for notes.");
+  expect(await screen.findByTestId("notes-waiting")).toHaveTextContent("230 saves ready for notes.");
 
   fireEvent.click(screen.getByRole("button", { name: "Write next 200" }));
   await waitFor(() => expect(calls.find((c) => c.url === "/api/notes/start")?.body).toEqual({ count: 200, confirm_cost: false }));

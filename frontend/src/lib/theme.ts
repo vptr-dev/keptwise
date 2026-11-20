@@ -96,18 +96,6 @@ export function applyLook(look: Look): void {
   document.documentElement.dataset.accent = look.accent;
   document.documentElement.dataset.tips = look.hide_tips ? "off" : "on";
   document.documentElement.dataset.textSize = look.text_size;
-  tellDesktop(look.accent);
-}
-
-/** The desktop window tints its taskbar icon to match (nothing in a browser). */
-let lastTold = "";
-function tellDesktop(accent: Accent): void {
-  const dark = document.documentElement.classList.contains("dark");
-  const now = `${accent}|${dark}`;
-  const desktop = (window as { pywebview?: { api?: { set_accent?: (accent: string, dark: boolean) => Promise<boolean> } } }).pywebview?.api;
-  if (now === lastTold || !desktop?.set_accent) return;
-  lastTold = now;
-  desktop.set_accent(accent, dark).catch(() => undefined);
 }
 
 /** The page stays hidden until the saved look is on it, so the app never
@@ -173,13 +161,6 @@ export function useLook() {
         window.setTimeout(showPage, 0); // after the look is applied (a timer, since a hidden window draws no frames)
       });
   }, []);
-
-  useEffect(() => {
-    // The desktop window's controls can arrive after the first look is applied.
-    const again = () => tellDesktop(look.accent);
-    window.addEventListener("pywebviewready", again);
-    return () => window.removeEventListener("pywebviewready", again);
-  }, [look.accent]);
 
   useEffect(() => {
     applyLook(look);

@@ -335,9 +335,10 @@ test("bring from your platform: one button makes them here, and it says what hap
     "POST /api/platform-collections/transfer": { ...links, linked: 2, made: 1, filed: 4, no_room: 0 },
   }));
   render(<CollectionsPage selection="links" />);
-  expect(await screen.findByText(/including TikTok’s, list collection names only/)).toBeInTheDocument();
-  expect(screen.getByText("Recipes")).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "Make 2 collections here" }));
+  expect(await screen.findByText(/TikTok may export folder names/)).toBeInTheDocument();
+  expect(screen.getByText("Manage collection links (1)")).toBeInTheDocument();
+  expect(screen.queryByLabelText("Destination for TikTok gym")).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Import 2 collections" }));
   await waitFor(() => expect(calls.find((c) => c.url === "/api/platform-collections/transfer")?.body).toEqual({ space_id: 1, parent_id: null }));
   expect(await screen.findByText("Made 1 collection in My saves, 1 already existed and was kept, 4 saves put in them.")).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Go to Sort" }));

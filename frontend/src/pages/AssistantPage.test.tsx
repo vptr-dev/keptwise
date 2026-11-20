@@ -1,5 +1,5 @@
 // Tests for the AI Assistant: saved chats, the AI tools and their answers.
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test } from "vitest";
 
 import { fakeBackend, httpError } from "../test/fakeBackend";
@@ -34,9 +34,10 @@ test("start a chat, ask, and open a save the answer used", async () => {
   });
   render(<AssistantPage chatId={null} />);
   expect(await screen.findByRole("heading", { name: "What can I help with?" })).toBeInTheDocument();
-  expect(screen.getByRole("list", { name: "Ideas" }).children).toHaveLength(6); // an even grid
-  // With "All my saves", only Ask anything works; the others need a group.
-  expect(screen.getByRole("button", { name: /^Summarise/ })).toBeDisabled();
+  const tools = screen.getByRole("list", { name: "Ideas" });
+  expect(tools.children).toHaveLength(7);
+  expect(within(tools).getByRole("button", { name: /^Find saves/ })).toBeEnabled();
+  expect(within(tools).getByRole("button", { name: /^Summarise/ })).toBeDisabled();
   fireEvent.click(screen.getByRole("button", { name: /^Ask anything/ }));
   await waitFor(() => expect(calls.find((c) => c.method === "POST")?.body).toEqual({ tool: "ask", target: null }));
 
@@ -123,7 +124,7 @@ test("the bar at the bottom starts a chat with whatever you type", async () => {
     "POST /api/assistant/chats": chat(),
   });
   render(<AssistantPage chatId={null} />);
-  expect(await screen.findByText(/This is your/)).toHaveTextContent("AI Assistant");
+  expect(await screen.findByText(/Find videos, ask what they said/)).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText("Ask anything"), { target: { value: "any gym ideas?" } });
   fireEvent.click(screen.getByRole("button", { name: "Ask" }));
   await waitFor(() => expect(calls.find((c) => c.method === "POST" && c.url === "/api/assistant/chats")?.body).toEqual({ tool: "ask", target: null }));
@@ -147,4 +148,30 @@ test("picked saves are brought into a chat, with ideas for what to ask", async (
   expect(calls.some((c) => c.url === "/api/assistant/chats/8/messages")).toBe(false); // nothing is sent until you ask
   fireEvent.click(screen.getByRole("button", { name: "Summarise these." }));
   await waitFor(() => expect(calls.find((c) => c.url === "/api/assistant/chats/8/messages")?.body).toEqual({ content: "Summarise these." }));
+});
+
+
+test("a reply arriving after switching chats stays in its own conversation", async () => {
+  let answerFirst!: (value: unknown) => void;
+  const firstReply = new Promise((resolve) => { answerFirst = resolve; });
+  const calls = fakeBackend({
+    "GET /api/assistant/chats": { chats: [] },
+    "GET /api/assistant/chats/5": chat({ id: 5, title: "First chat" }),
+    "GET /api/assistant/chats/6": chat({ id: 6, title: "Second chat" }),
+    "POST /api/assistant/chats/5/messages": () => firstReply,
+  });
+  const { rerender } = render(<AssistantPage chatId={5} />);
+  await screen.findByRole("heading", { name: "First chat" });
+  fireEvent.change(screen.getByLabelText("Your message"), { target: { value: "Find my pasta videos" } });
+  fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await waitFor(() => expect(calls.some((call) => call.url.endsWith("/5/messages"))).toBe(true));
+  rerender(<AssistantPage chatId={6} />);
+  await screen.findByRole("heading", { name: "Second chat" });
+  expect(screen.getByLabelText("Your message")).toBeEnabled();
+  await act(async () => {
+    answerFirst(chat({ id: 5, title: "First chat", messages: [answer("Pasta reply")] }));
+    await firstReply;
+  });
+  expect(screen.getByRole("heading", { name: "Second chat" })).toBeInTheDocument();
+  expect(screen.queryByText("Pasta reply")).not.toBeInTheDocument();
 });

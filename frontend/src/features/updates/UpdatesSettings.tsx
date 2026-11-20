@@ -37,6 +37,10 @@ export default function UpdatesSettings({
         {status ? `You have version ${status.current}.` : "Loading…"} Keptwise is open source and keeps
         everything on this computer.
       </p>
+      <p className="kw-tip mb-4 text-sm text-zinc-500 dark:text-zinc-400">
+        Some exports, including TikTok’s, only list folder names. Import can create those folders.
+        Collection links place videos when the export says which folder they belong to.
+      </p>
       {status && (
         <div className="space-y-3">
           <label className="flex cursor-pointer items-start gap-2.5 text-sm">
@@ -73,6 +77,19 @@ export default function UpdatesSettings({
           {error && <Notice tone="error">{error}</Notice>}
         </div>
       )}
+      <div className="mt-5 space-y-1 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+        <a
+          className="inline-flex rounded-lg border border-zinc-300 px-3 py-1.5 text-sm font-medium hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+          href="mailto:victor.petrov7811@gmail.com?subject=Keptwise%20feedback"
+          target="_blank"
+          rel="noreferrer"
+        >
+          Report feedback
+        </a>
+        <p className="kw-tip text-xs text-zinc-500 dark:text-zinc-400">
+          Opens an email draft you can edit. Sending it shares your email address.
+        </p>
+      </div>
     </Card>
   );
 }

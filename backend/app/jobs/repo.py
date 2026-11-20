@@ -10,11 +10,12 @@ from app.db.connection import Database
 # Jobs in these states are finished and will not change again.
 FINISHED = ("done", "failed", "cancelled")
 
-_UPDATABLE = {"status", "progress", "total", "message", "error", "result_json", "finished_at"}
+_UPDATABLE = {"status", "progress", "total", "message", "error", "result_json", "finished_at", "notice_dismissed"}
 
 
 def _to_dict(row: Any) -> dict[str, Any]:
     job = dict(row)
+    job["notice_dismissed"] = bool(job["notice_dismissed"])
     job["params"] = json.loads(job.pop("params_json") or "{}")
     result = job.pop("result_json")
     job["result"] = json.loads(result) if result else None
@@ -44,6 +45,15 @@ class JobsRepo:
                 "SELECT * FROM jobs ORDER BY id DESC LIMIT ?", (limit,)
             ).fetchall()
         return [_to_dict(row) for row in rows]
+
+    def dismiss_notice(self, job_id: int) -> bool:
+        with self._db.connect() as conn:
+            cursor = conn.execute(
+                """UPDATE jobs SET notice_dismissed = 1
+                   WHERE id = ? AND status IN ('done', 'failed', 'cancelled', 'interrupted')""",
+                (job_id,),
+            )
+            return cursor.rowcount > 0
 
     def active_title(self) -> str | None:
         with self._db.connect() as conn:

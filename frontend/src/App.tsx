@@ -79,6 +79,12 @@ function typing(target: EventTarget | null): boolean {
 }
 
 export default function App() {
+  const [narrowWindow, setNarrowWindow] = useState(() => window.innerWidth < 840);
+  useEffect(() => {
+    const resize = () => setNarrowWindow(window.innerWidth < 840);
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+  }, []);
   const route = useRoute();
   const { overview, setOverview, reload: reloadAi } = useAiOverview();
   const { look, loaded: lookLoaded, changeLook } = useLook();
@@ -328,6 +334,7 @@ export default function App() {
     checkedAt,
   };
 
+  const compactSidebar = look.compact_sidebar || narrowWindow;
   return (
     <TipsProvider value={tips}>
       <Layout
@@ -335,18 +342,18 @@ export default function App() {
         activePath={activePath}
         status={status}
         onSearch={() => setShowCommands(true)}
-        picker={<PlatformPicker scope={scope} onChoose={chooseScope} compact={look.compact_sidebar} />}
+        picker={<PlatformPicker scope={scope} onChoose={chooseScope} compact={compactSidebar} />}
         theme={look.theme}
-        compact={look.compact_sidebar}
+        compact={compactSidebar}
         onCycleTheme={cycleTheme}
         onShortcuts={() => setShowShortcuts(true)}
         onReorderNav={(paths) => changeLook({ nav_order: paths })}
         onStatusClick={() => navigate("/settings?section=ai")}
-        footer={updates && !look.compact_sidebar ? <UpdateNow status={updates} place="sidebar" /> : undefined}
+        footer={updates && !compactSidebar ? <UpdateNow status={updates} place="sidebar" /> : undefined}
         actions={<UndoButtons />}
       >
         {/* key: each page starts at the top, with fresh state, and reloads when the platform changes */}
-        <div key={`${page === "item" || page === "plans" ? route.path : page}|${scope.platform ?? "all"}|${dataVersion}`} className={`kw-page ${page === "collections" || page === "chat" ? "h-full" : ""}`}>
+        <div key={`${page === "item" || page === "plans" ? route.path : page}|${scope.platform ?? "all"}|${dataVersion}`} className={`kw-page ${page === "collections" || page === "chat" || page === "assistant" ? "h-full" : ""}`}>
           {content}
         </div>
       </Layout>

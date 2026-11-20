@@ -403,7 +403,8 @@ def test_assistant_tools_work_on_a_collection(sapi: TestClient, ssvc: AppService
     answered = sapi.post(f"/api/assistant/chats/{empty['id']}/messages", json={"content": "Summarise"}).json()
     assert answered["messages"][1]["found"] is False and len(seen) == 1  # no AI call for an empty group
     assert gym  # in no collection, never sent
-    assert len(sapi.get("/api/assistant/tools").json()["tools"]) == 6
+    tools = sapi.get("/api/assistant/tools").json()["tools"]
+    assert {tool["id"] for tool in tools} == {"ask", "find", "summary", "plan", "shopping", "compare", "takeaways"}
 
 
 def test_a_failed_answer_leaves_the_chat_tidy(sapi: TestClient, ssvc: AppServices, net: FakeNet) -> None:

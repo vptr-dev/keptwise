@@ -3,11 +3,11 @@
 import { Badge, Card } from "../../components/ui";
 import { formatDuration, type RecentVideo } from "./enrichApi";
 
-export default function RecentVideos({ videos }: { videos: RecentVideo[] }) {
+export default function RecentVideos({ videos, embedded = false }: { videos: RecentVideo[]; embedded?: boolean }) {
   if (videos.length === 0) return null;
   return (
     <section>
-      <h2 className="text-lg font-semibold tracking-tight">Recently done</h2>
+      {!embedded && <h2 className="text-lg font-semibold tracking-tight">Recently done</h2>}
       <ul className="mt-3 space-y-3">
         {videos.map((video) => (
           <li key={video.id}>

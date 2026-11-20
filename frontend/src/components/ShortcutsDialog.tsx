@@ -11,6 +11,7 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
       ["#  /  @  >  ?", "In the command centre: tags, collections, creators, actions, ask the AI"],
       [PAGE_KEYS_NOTE, "Go to a page in the sidebar (in order)"],
       ["Ctrl + Shift + L", "Switch light / dark theme"],
+      ["F11", "Enter or leave fullscreen"],
       ["?", "Show these shortcuts"],
       ["Esc", "Close a panel or dialog"],
     ],
@@ -19,7 +20,7 @@ const GROUPS: { title: string; keys: [string, string][] }[] = [
     title: "Saves, collections and tags",
     keys: [
       ["Right-click  or  Shift + F10", "Every action for it: tags, collections, plans, rename, colour, merge, delete…"],
-      ["Ctrl + click", "Select several saves in the Library"],
+      ["Ctrl + click", "Select several saves in Library or Search"],
       ["Shift + click", "Select a whole run of saves"],
       ["Ctrl + A", "Select every save shown (while selecting)"],
     ],

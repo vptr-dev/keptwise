@@ -21,13 +21,13 @@ import ResultCard from "../features/search/ResultCard";
 import { sortingApi, type Collection } from "../features/sorting/sortingApi";
 import { errorCode, errorText } from "../lib/api";
 import { navigate, useRoute } from "../lib/router";
-import { Tip } from "../lib/tips";
 
 const SETTINGS_CODES = ["missing_key", "missing_model", "model_missing", "unreachable"];
-const EXAMPLES = ["What recipes did I save?", "Which places did I want to visit?", "Put my pasta saves in a new Recipes collection"];
+const EXAMPLES = ["Find my videos about pasta", "Which places did I save in London?", "Summarise my skincare tips"];
 
 const TOOL_ICONS: Record<ToolId, ReactNode> = {
   ask: icons.chat,
+  find: icons.search,
   summary: icons.list,
   plan: icons.plans,
   shopping: icons.cart,
@@ -51,12 +51,17 @@ export default function AssistantPage({ chatId }: { chatId: number | null }) {
   const [chat, setChat] = useState<Chat | null>(null);
   const [error, setError] = useState<{ text: string; code: string | null } | null>(null);
   const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState<Set<number>>(() => new Set());
+  const [creating, setCreating] = useState(false);
+  const requests = useRef(new Set<number>());
+  const starting = useRef(false);
+  const visibleChat = useRef(chatId);
+  const busy = chat ? pending.has(chat.id) : creating;
   const [openId, setOpenId] = useState<number | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState("");
   const bottom = useRef<HTMLDivElement>(null);
-  const handledLink = useRef(false);
+  const handledLink = useRef<string | null>(null);
 
   const loadChats = useCallback(() => {
     assistantApi.chats().then((c) => setChats(c.chats)).catch(() => setChats([]));
@@ -64,73 +69,107 @@ export default function AssistantPage({ chatId }: { chatId: number | null }) {
   useEffect(loadChats, [loadChats]);
 
   useEffect(() => {
+    visibleChat.current = chatId;
     setError(null);
     setRenaming(false);
+    setOpenId(null);
+    setText("");
+    setChat((current) => current?.id === chatId ? current : null);
     if (chatId === null || !Number.isInteger(chatId)) {
       setChat(null);
       return;
     }
+    let active = true;
     assistantApi
       .chat(chatId)
-      .then(setChat)
+      .then((loaded) => {
+        if (active) setChat((current) =>
+          current?.id === loaded.id && current.messages.length > loaded.messages.length ? current : loaded);
+      })
       .catch((e) => {
+        if (!active) return;
         setChat(null);
         setError({ text: errorText(e), code: null });
       });
+    return () => { active = false; };
   }, [chatId]);
 
   useEffect(() => {
     bottom.current?.scrollIntoView?.({ block: "end" });
   }, [chat?.messages.length, busy]);
 
+  const begin = useCallback((id: number) => {
+    if (requests.current.has(id)) return false;
+    requests.current.add(id);
+    setPending(new Set(requests.current));
+    return true;
+  }, []);
+
+  const finish = useCallback((id: number) => {
+    requests.current.delete(id);
+    setPending(new Set(requests.current));
+  }, []);
+
   const send = useCallback(
     async (target: Chat, content: string) => {
       content = content.trim();
-      if (!content) return;
-      setBusy(true);
+      if (!content || !begin(target.id)) return;
       setError(null);
       const optimistic: ChatMessage = { id: -1, role: "user", content, found: true, sources: [], created_at: "" };
       setChat({ ...target, messages: [...target.messages, optimistic] });
       setText("");
       try {
-        setChat(await assistantApi.send(target.id, content));
+        const reply = await assistantApi.send(target.id, content);
+        if (visibleChat.current === target.id) setChat(reply);
         loadChats();
       } catch (e) {
-        setChat(target); // the backend took the message back out
-        setText(content);
-        setError({ text: errorText(e), code: errorCode(e) });
+        if (visibleChat.current === target.id) {
+          setChat(target);
+          setText(content);
+          setError({ text: errorText(e), code: errorCode(e) });
+        }
       } finally {
-        setBusy(false);
+        finish(target.id);
       }
     },
-    [loadChats],
+    [begin, finish, loadChats],
   );
 
   const confirm = useCallback(async (target: Chat, messageId: number, go: boolean) => {
-    setBusy(true);
+    if (!begin(target.id)) return;
     setError(null);
     try {
-      setChat(await assistantApi.confirm(target.id, messageId, go));
+      const reply = await assistantApi.confirm(target.id, messageId, go);
+      if (visibleChat.current === target.id) setChat(reply);
       loadChats();
     } catch (e) {
-      setError({ text: errorText(e), code: errorCode(e) });
+      if (visibleChat.current === target.id) setError({ text: errorText(e), code: errorCode(e) });
     } finally {
-      setBusy(false);
+      finish(target.id);
     }
-  }, [loadChats]);
+  }, [begin, finish, loadChats]);
 
   const start = useCallback(
     async (tool: ToolId, target: Target | null, firstMessage?: string) => {
+      if (starting.current) return;
+      starting.current = true;
+      setCreating(true);
+      const from = window.location.hash;
       setError(null);
       try {
         const made = await assistantApi.create(tool, target);
         loadChats();
+        if (window.location.hash !== from) return;
+        visibleChat.current = made.id;
         navigate(`/chat/${made.id}`);
         setChat(made);
         const prompt = firstMessage ?? (tool !== "ask" ? toolInfo(tool).prompt(made.target_name) : "");
         if (prompt) void send(made, prompt);
       } catch (e) {
-        setError({ text: errorText(e), code: errorCode(e) });
+        if (window.location.hash === from) setError({ text: errorText(e), code: errorCode(e) });
+      } finally {
+        starting.current = false;
+        setCreating(false);
       }
     },
     [loadChats, send],
@@ -138,12 +177,17 @@ export default function AssistantPage({ chatId }: { chatId: number | null }) {
 
   // Links from other screens: ?q=..., or ?tool=...&collection= / tag= / plan=
   useEffect(() => {
-    if (handledLink.current || chatId !== null) return;
+    if (chatId !== null || !route.query.size) {
+      handledLink.current = null;
+      return;
+    }
+    const link = route.query.toString();
+    if (handledLink.current === link) return;
     const q = route.query.get("q");
     const tool = route.query.get("tool") as ToolId | null;
     const picked = (route.query.get("items") ?? "").split(",").map(Number).filter((n) => Number.isInteger(n) && n > 0);
     if (!q && !tool && picked.length === 0) return;
-    handledLink.current = true;
+    handledLink.current = link;
     const collection = route.query.get("collection");
     const tag = route.query.get("tag");
     const plan = route.query.get("plan");
@@ -160,22 +204,31 @@ export default function AssistantPage({ chatId }: { chatId: number | null }) {
   }, [route.query, chatId, start]);
 
   async function remove(id: number) {
-    const left = await assistantApi.remove(id);
-    setChats(left.chats);
-    if (chat?.id === id) navigate("/chat");
+    try {
+      const left = await assistantApi.remove(id);
+      setChats(left.chats);
+      if (visibleChat.current === id) navigate("/chat");
+    } catch (e) {
+      setError({ text: errorText(e), code: errorCode(e) });
+    }
   }
 
   async function rename(event: FormEvent) {
     event.preventDefault();
     if (!chat || !title.trim()) return;
     setRenaming(false);
-    setChat(await assistantApi.rename(chat.id, title.trim()));
-    loadChats();
+    try {
+      const renamed = await assistantApi.rename(chat.id, title.trim());
+      if (visibleChat.current === renamed.id) setChat(renamed);
+      loadChats();
+    } catch (e) {
+      if (visibleChat.current === chat.id) setError({ text: errorText(e), code: errorCode(e) });
+    }
   }
 
   return (
     <div className="flex h-full min-h-0">
-      <aside className="kw-glass flex w-64 shrink-0 flex-col border-r" aria-label="Chats">
+      <aside className="flex w-36 shrink-0 flex-col bg-zinc-500/[.05] sm:w-44 xl:w-56" aria-label="Chats">
         <div className="p-3">
           <Button variant="secondary" className="w-full" onClick={() => navigate("/chat")}>
             <span className="h-4 w-4">{icons.plus}</span>
@@ -204,9 +257,10 @@ export default function AssistantPage({ chatId }: { chatId: number | null }) {
               <button
                 type="button"
                 onClick={() => void remove(c.id)}
+                disabled={pending.has(c.id)}
                 aria-label={`Delete chat ${c.title}`}
                 title="Delete chat"
-                className="absolute right-1.5 top-2 hidden h-6 w-6 items-center justify-center rounded-md p-1 text-zinc-400 hover:bg-zinc-200 hover:text-red-600 group-hover:flex dark:hover:bg-zinc-700"
+                className="absolute right-1.5 top-2 hidden h-6 w-6 items-center justify-center rounded-md p-1 text-zinc-400 hover:bg-zinc-200 hover:text-red-600 group-hover:flex group-focus-within:flex disabled:opacity-50 dark:hover:bg-zinc-700"
               >
                 {icons.trash}
               </button>
@@ -218,7 +272,7 @@ export default function AssistantPage({ chatId }: { chatId: number | null }) {
       <div className="flex min-w-0 flex-1 flex-col">
         {chat ? (
           <>
-            <header className="flex flex-wrap items-center gap-3 border-b border-zinc-200 px-6 py-3.5 dark:border-zinc-800">
+            <header className="flex flex-wrap items-center gap-3 px-4 py-3.5 xl:px-6">
               <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-indigo-50 p-1.5 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-300">{TOOL_ICONS[chat.tool]}</span>
               {renaming ? (
                 <form onSubmit={rename} className="flex flex-1 gap-2">
@@ -262,13 +316,12 @@ export default function AssistantPage({ chatId }: { chatId: number | null }) {
                   ),
                 )}
                 {busy && (
-                  <p className="flex items-center gap-2 text-sm text-zinc-500" role="status">
+                  <p className="flex items-center gap-2 text-sm text-zinc-500" role="status" aria-label="Waiting for reply">
                     <span className="flex gap-1" aria-hidden="true">
                       {[0, 1, 2].map((dot) => (
                         <span key={dot} className="h-1.5 w-1.5 animate-bounce rounded-full bg-current" style={{ animationDelay: `${dot * 120}ms` }} />
                       ))}
                     </span>
-                    Looking through your saves…
                   </p>
                 )}
                 {error && (
@@ -320,8 +373,7 @@ export default function AssistantPage({ chatId }: { chatId: number | null }) {
                 <div>
                   <h1 className="text-2xl font-semibold tracking-tight">What can I help with?</h1>
                   <p className="kw-tip mt-1.5 text-sm text-zinc-600 dark:text-zinc-400">
-                    Ask about your saves (answers come only from them), or ask me to do something in the app: file, tag,
-                    rename, make plans, tidy up, undo. I'll check with you before anything big.
+                    Find videos, ask what they said, or pick a collection to work with.
                   </p>
                 </div>
                 <form
@@ -336,12 +388,12 @@ export default function AssistantPage({ chatId }: { chatId: number | null }) {
                     className="min-w-0 flex-1 bg-transparent py-2 text-[15px] outline-none placeholder:text-zinc-400"
                     value={text}
                     onChange={(event) => setText(event.target.value)}
-                    placeholder="Ask about your saves…"
+                    placeholder="Find a video or ask about your saves…"
                     aria-label="Ask anything"
                     autoFocus
                     maxLength={4000}
                   />
-                  <Button type="submit" disabled={!text.trim()}>
+                  <Button type="submit" disabled={creating || !text.trim()}>
                     Ask
                   </Button>
                 </form>
@@ -359,11 +411,6 @@ export default function AssistantPage({ chatId }: { chatId: number | null }) {
                 </div>
               </header>
               {error && <Notice tone="error" onClose={() => setError(null)}>{error.text}</Notice>}
-              <Tip id="assistant-start">
-                This is your <b>AI Assistant</b>. Ask anything above, or pick a collection, tag or plan below and choose
-                what to do with it. To talk about certain saves, pick them in the Library, right-click and choose “Ask the
-                AI Assistant”. Your chats are kept on the left.
-              </Tip>
               <ToolGallery onStart={(tool, target) => void start(tool, target)} />
             </div>
           </div>
@@ -393,6 +440,9 @@ function Starter({ chat, onAsk }: { chat: Chat; onAsk: (text: string) => void })
         </div>
       </div>
     );
+  }
+  if (chat.tool === "find") {
+    return <p className="text-sm text-zinc-500">Enter a title, creator or topic to search your saves.</p>;
   }
   if (chat.tool === "ask") {
     return (
@@ -542,9 +592,24 @@ function Answer({
       >
         <AnswerText text={message.content} byNumber={byNumber} onOpen={onOpen} />
       </div>
-      {message.actions && <ActionsDone actions={message.actions} onConfirm={onConfirm} />}
+      {message.actions && (message.actions.state !== "done" || message.actions.changed.length > 0) &&
+        <ActionsDone actions={message.actions} onConfirm={onConfirm} />}
       {message.found && message.sources.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
+          {(tool === "ask" || tool === "find") && (
+            <>
+              <Button size="sm" variant="ghost"
+                onClick={() => navigate(`/chat?items=${message.sources.map((s) => s.item_id).join(",")}`)}>
+                Ask about these saves
+              </Button>
+              {message.sources.length > 1 && (
+                <Button size="sm" variant="ghost"
+                  onClick={() => navigate(`/chat?tool=compare&items=${message.sources.map((s) => s.item_id).join(",")}`)}>
+                  Compare these
+                </Button>
+              )}
+            </>
+          )}
           {(tool === "plan" || tool === "shopping" || tool === "compare") &&
             (saved ? (
               <Button size="sm" variant="secondary" onClick={() => navigate(`/plans/${saved}`)}>
@@ -560,9 +625,9 @@ function Answer({
         </div>
       )}
       {message.sources.length > 0 && (
-        <details className="group" open={message.sources.length <= 3}>
+        <details className="group" open>
           <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wide text-zinc-500">
-            {message.sources.length === 1 ? "From this save" : `From these ${message.sources.length} saves`}
+            {message.sources.length === 1 ? "1 save" : `${message.sources.length} saves`}
           </summary>
           <div className="mt-2 space-y-2">
             {message.sources.map((source) => (

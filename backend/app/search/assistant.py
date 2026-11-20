@@ -25,18 +25,21 @@ keep the same tool and group.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from app.ai.base import Message
 from app.ai.service import AIService
 from app.db.connection import Database
+from app.library import scope
 from app.search import agent
 from app.search.chat import NOTHING_FOUND, ChatAnswer, cited_numbers, describe_source, retrieval_query
 from app.search.service import HybridHit, SearchService
 
-Tool = Literal["ask", "summary", "plan", "shopping", "compare", "takeaways"]
-TOOLS: tuple[str, ...] = ("ask", "summary", "plan", "shopping", "compare", "takeaways")
+Tool = Literal["ask", "find", "summary", "plan", "shopping", "compare", "takeaways"]
+TOOLS: tuple[str, ...] = ("ask", "find", "summary", "plan", "shopping", "compare", "takeaways")
 TargetType = Literal["all", "collection", "tag", "plan", "items"]
 
 MAX_ASK_SOURCES = 8
@@ -45,10 +48,31 @@ MAX_PICKED = 30  # saves the user can bring into one chat
 # How much of each transcript the AI reads: more when there are few saves.
 TRANSCRIPT_BUDGET = 12000
 HISTORY_TURNS = 8
-SEARCH_POOL = 40
+MAX_FIND_SOURCES = 20
+FIND_COMMAND = re.compile(
+    r"^(?:(?:can|could|would|will) you\s+)?(?:please\s+)?"
+    r"(?:find(?: me)?|show me|look up|search(?: my saves)? for|pull up)\s+(.+)", re.I | re.S,
+)
+FIND_PREFIX = re.compile(
+    r"^(?:(?:all|everything|some|my|the|any|that|those|saved)\s+)*"
+    r"(?:(?:saves?|videos?|posts?|clips?|tiktoks?)\s+)?(?:(?:about|on|for|with)\s+)?", re.I,
+)
+REFERENCE_QUESTION = re.compile(
+    r"^(?:(?:can|could|would) you\s+)?(?:please\s+)?"
+    r"(?:summari[sz]e|compare|explain|rank|recommend|what|which|how|why)\b.*"
+    r"\b(?:these|those|them|the (?:first|second|third|last) (?:ones?|\w+))\b",
+    re.I | re.S,
+)
+BROWSE_SAVES = re.compile(
+    r"(?:(?:all|my|the|newest|latest|recent|saved)\s+)*(?:saves?|videos?|clips?|posts?)", re.I
+)
+FOLLOW_ON_ACTION = re.compile(
+    r"\b(?:and(?: then)?|then)\s+(?:add|archive|delete|file|move|organise|organize|put|rename|remove|sort|tag)\b", re.I,
+)
 
 TOOL_LABELS = {
     "ask": "Ask anything",
+    "find": "Find saves",
     "summary": "Summarise",
     "plan": "Make a plan",
     "shopping": "Shopping or packing list",
@@ -168,17 +192,19 @@ def library_overview(conn: sqlite3.Connection, platform: str | None) -> str:
 
 
 def target_items(conn: sqlite3.Connection, target: dict[str, Any] | None, platform: str | None,
-                 limit: int | None = None) -> list[int]:
+                 limit: int | None = None, *, recent: bool = False) -> list[int]:
     """The saves in the chat's group (collection, tag or plan; every save for
     "all"), best first: ones with AI notes, then newest."""
     kind = (target or {}).get("type") or "all"
-    scope_sql, params = ("i.deleted_at IS NULL AND i.platform = ?", [platform]) if platform else ("i.deleted_at IS NULL", [])
-    order = "i.status = 'processed' DESC, i.saved_at DESC, i.id DESC"
+    scope_sql, params = scope.where(platform)
+    order = "i.saved_at DESC, i.id DESC"
+    if not recent:
+        order = "i.status = 'processed' DESC, " + order
     if kind == "items":
         # Saves the user picked: whatever platform is chosen, in their order.
         wanted = [int(i) for i in (target or {}).get("ids") or []][:MAX_PICKED]
         marks = ",".join("?" for _ in wanted)
-        found = {int(r["id"]) for r in conn.execute(f"SELECT id FROM items WHERE deleted_at IS NULL AND id IN ({marks})", wanted)}
+        found = {int(r["id"]) for r in conn.execute(f"SELECT id FROM items WHERE deleted_at IS NULL AND gone_at IS NULL AND id IN ({marks})", wanted)}
         return [i for i in wanted if i in found][: limit or MAX_PICKED]
     if kind == "collection":
         sql = (f"SELECT i.id FROM items i JOIN item_collections ic ON ic.item_id = i.id "
@@ -256,7 +282,7 @@ def create_chat(conn: sqlite3.Connection, tool: str = "ask", target: dict[str, A
     if tool not in TOOLS:
         raise ValueError("Unknown AI tool.")
     if not title:
-        title = TOOL_LABELS[tool] if tool != "ask" else "New chat"
+        title = TOOL_LABELS[tool] if tool not in {"ask", "find"} else "New chat"
         if target and target.get("type") == "items":
             title = f"{TOOL_LABELS[tool] if tool != 'ask' else 'About'}: {target_name(conn, target).removeprefix('the ')}"
         elif tool != "ask" and target and target.get("type") != "all":
@@ -325,15 +351,14 @@ def answer(db: Database, search: SearchService, ai: AIService, chat: dict[str, A
         group = target_items(conn, target, platform) if (tool != "ask" or target) else None
     if tool == "ask" and not picked:
         query = retrieval_query(history)
-        hits = search.hybrid(query, limit=SEARCH_POOL) if query else []
-        allowed = set(group) if group is not None else None
-        if platform and allowed is None:
+        if group is None:
             with db.connect() as conn:
-                allowed = {int(r["id"]) for r in conn.execute("SELECT id FROM items WHERE platform = ?", (platform,))}
-        with db.connect() as conn:
-            live = {int(r["id"]) for r in conn.execute("SELECT id FROM items WHERE deleted_at IS NULL")}
-        hits = [h for h in hits if h.item_id in live]
-        hits = [h for h in hits if allowed is None or h.item_id in allowed][:MAX_ASK_SOURCES]
+                group = target_items(conn, target, platform)
+        allowed = set(group)
+        linked = reference_ids(chat, history[-1]["content"])
+        hits = [HybridHit(item_id, 0.0) for item_id in linked if item_id in allowed][:MAX_ASK_SOURCES]
+        if not linked and query:
+            hits = search.hybrid(query, limit=MAX_ASK_SOURCES, allowed_ids=allowed)
     else:
         # A group (or saves the user picked): the AI reads them all, whatever is asked.
         hits = [HybridHit(item_id, 0.0) for item_id in (group or [])[: MAX_PICKED if picked else MAX_GROUP_SOURCES]]
@@ -354,11 +379,72 @@ def answer(db: Database, search: SearchService, ai: AIService, chat: dict[str, A
     numbers = cited_numbers(reply, len(sources))
     found = bool(reply.found and reply.answer.strip())
     text = reply.answer.strip() or NOTHING_FOUND
+    if not numbers:
+        # A weak model answer should never hide the saves we actually found.
+        numbers = list(range(1, min(5, len(sources)) + 1))
     return {
         "found": found,
         "answer": text,
-        "sources": [{"number": n, "item_id": sources[n - 1].item_id} for n in numbers] if found else [],
+        "sources": [{"number": n, "item_id": sources[n - 1].item_id} for n in numbers],
     }
+
+
+def find_query(content: str) -> str | None:
+    """Recognise plain requests to find videos. Leave combined edits to the agent."""
+    match = FIND_COMMAND.match(content.strip())
+    if match is None or FOLLOW_ON_ACTION.search(match[1]):
+        return None
+    request = match[1].strip(" ?!.,")
+    if re.match(r"(?:how|why|what|which|where|when)\b", request, re.I):
+        return None  # a question about the saves, e.g. "show me how to make it"
+    if BROWSE_SAVES.fullmatch(request):
+        return ""
+    return FIND_PREFIX.sub("", request, count=1).strip() or request
+
+
+def reference_ids(chat: dict[str, Any], content: str) -> list[int]:
+    if not REFERENCE_QUESTION.match(content.strip()) or FOLLOW_ON_ACTION.search(content):
+        return []
+    for message in reversed(chat.get("messages", [])):
+        if message["role"] == "assistant":
+            return [source["item_id"] for source in message["sources"]]
+    return []
+
+
+def numbered(ids: list[int]) -> list[dict[str, int]]:
+    return [{"number": number, "item_id": item_id} for number, item_id in enumerate(ids, start=1)]
+
+
+def find_saves(db: Database, search: SearchService, chat: dict[str, Any], query: str,
+               platform: str | None) -> dict[str, Any]:
+    target = chat.get("target")
+    with db.connect() as conn:
+        ids = target_items(conn, target, platform, limit=None if query else MAX_FIND_SOURCES, recent=not query)
+    if not query and ids:
+        label = "save" if len(ids) == 1 else "saves"
+        return {"answer": f"Showing {len(ids)} {label}.", "sources": numbered(ids), "found": True}
+    hits = search.hybrid(query[:200], limit=MAX_FIND_SOURCES + 1, allowed_ids=set(ids)) if query else []
+    if not hits:
+        return {"answer": "No saves matched. Try a title, creator or topic.", "sources": [], "found": False}
+    count = len(hits)
+    label = "save" if count == 1 else "saves"
+    message = f"Found {count} matching {label}." if count <= MAX_FIND_SOURCES else f"Here are the top {MAX_FIND_SOURCES} matching saves."
+    return {"answer": message, "sources": numbered([hit.item_id for hit in hits[:MAX_FIND_SOURCES]]), "found": True}
+
+
+def _read_result_ids(path: str, body: Any) -> list[int]:
+    route = urlsplit(path).path
+    if not isinstance(body, dict):
+        return []
+    if route == "/api/search":
+        rows = [hit.get("item") for hit in body.get("results", []) if isinstance(hit, dict)]
+    elif route in {"/api/library", "/api/library/items"}:
+        rows = body.get("items", [])
+    elif re.fullmatch(r"/api/items/\d+", route):
+        rows = [body.get("item")]
+    else:
+        return []
+    return [row["id"] for row in rows if isinstance(row, dict) and type(row.get("id")) is int]
 
 
 def _agent_message(conn: sqlite3.Connection, chat_id: int, result: dict[str, Any]) -> None:
@@ -368,7 +454,7 @@ def _agent_message(conn: sqlite3.Connection, chat_id: int, result: dict[str, Any
     else:
         actions = {"state": "done", "pending": [], "changed": result.get("changed", []),
                    "rounds": result.get("rounds", [])[-30:]}  # kept to see what the AI did
-    _add_message(conn, chat_id, "assistant", result["say"], [], True, actions)
+    _add_message(conn, chat_id, "assistant", result["say"], result.get("sources", []), True, actions)
 
 
 def _agent_label(content: str) -> str:
@@ -432,14 +518,35 @@ def send(db: Database, search: SearchService, ai: AIService, chat_id: int, conte
             conn.execute("UPDATE chats SET title = ? WHERE id = ?", (" ".join(content.split())[:60], chat_id))
     history: list[Message] = [{"role": m["role"], "content": m["content"]} for m in chat["messages"]]
     history.append({"role": "user", "content": content})
-    # In a plain "Ask anything" chat the AI can also do things in the app.
-    if agent_tools is not None and chat["tool"] == "ask" and not chat.get("target"):
+    query = find_query(content) if chat["tool"] in {"ask", "find"} else None
+    if chat["tool"] == "find" or (query is not None and (chat.get("target") or {}).get("type") != "items"):
+        try:
+            reply = find_saves(db, search, chat, query if query is not None else content.strip(), platform)
+        except Exception:
+            with db.connect() as conn:
+                conn.execute("DELETE FROM chat_messages WHERE id = ?", (user_id,))
+            raise
+        with db.connect() as conn:
+            _add_message(conn, chat_id, "assistant", reply["answer"], reply["sources"], reply["found"])
+            return get_chat(conn, chat_id) or {}
+
+    # In a plain chat the Assistant can also act on the library.
+    if (agent_tools is not None and chat["tool"] == "ask" and not chat.get("target")
+            and not reference_ids(chat, content)):
+        seen: dict[int, None] = {}
+
+        def call(method: str, path: str, body: Any, step: int) -> tuple[int, Any]:
+            status, result = agent_tools.call(method, path, body, step)
+            if method == "GET" and status < 400:
+                seen.update(dict.fromkeys(_read_result_ids(path, result)))
+            return status, result
+
         step = agent_tools.new_step()
         try:
             ai.check_ready()
             with db.connect() as conn:
                 library = agent.library_data(conn)
-            result = agent.run(ai.chat_json, agent_tools.call, agent_tools.actions, library, history, {}, step)
+            result = agent.run(ai.chat_json, call, agent_tools.actions, library, history, {}, step)
         except Exception:
             with db.connect() as conn:
                 conn.execute("DELETE FROM chat_messages WHERE id = ?", (user_id,))
@@ -448,6 +555,12 @@ def send(db: Database, search: SearchService, ai: AIService, chat_id: int, conte
             agent_tools.finish(step, _agent_label(content))
         if result["mode"] != "answer":
             with db.connect() as conn:
+                if seen and result["mode"] == "done" and not result.get("changed"):
+                    allowed = set(target_items(conn, None, platform))
+                    ids = [item_id for item_id in seen if item_id in allowed][:MAX_FIND_SOURCES]
+                    result["sources"] = numbered(ids)
+                    if ids and result["say"] == "I didn't change anything.":
+                        result["say"] = "Here are the saves I found."
                 _agent_message(conn, chat_id, result)
                 return get_chat(conn, chat_id) or {}
     try:

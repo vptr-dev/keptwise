@@ -29,10 +29,12 @@ export default function QuickActions({
   item,
   onChange,
   visible,
+  inline = false,
 }: {
   item: LibraryItem;
   onChange: (item: LibraryItem) => void;
   visible: boolean; // the mouse is over the card (or a pop-up is open)
+  inline?: boolean;
 }) {
   const [panel, setPanel] = useState<{ kind: Panel; anchor: HTMLElement } | null>(null);
   const open = (kind: Panel) => (event: MouseEvent<HTMLButtonElement>) => {
@@ -55,7 +57,7 @@ export default function QuickActions({
   return (
     <>
       <div
-        className={`absolute right-2 top-2 flex flex-col gap-1.5 transition ${
+        className={`flex shrink-0 gap-1.5 transition ${inline ? "flex-wrap" : "absolute right-2 top-2 flex-col"} ${
           visible || panel ? "opacity-100" : "pointer-events-none opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100"
         }`}
       >

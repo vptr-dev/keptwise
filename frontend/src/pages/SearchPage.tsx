@@ -5,6 +5,9 @@ import { useCallback, useEffect, useState } from "react";
 
 import JobCard from "../components/JobCard";
 import { Button, Card, Notice } from "../components/ui";
+import { selectionMenuItems } from "../features/library/saveMenu";
+import BulkBar from "../features/organize/BulkBar";
+import { onOrganizeChange } from "../features/organize/organizeApi";
 import ItemPanel from "../features/search/ItemPanel";
 import ResultCard from "../features/search/ResultCard";
 import SearchBar from "../features/search/SearchBar";
@@ -38,6 +41,17 @@ export default function SearchPage() {
   useEffect(loadStatus, [loadStatus]);
 
   const [refresh, setRefresh] = useState(0);
+  const reload = useCallback(() => setRefresh((n) => n + 1), []);
+  useEffect(() => onOrganizeChange(reload), [reload]);
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<number[]>([]);
+  const [anchor, setAnchor] = useState<number | null>(null);
+  const clear = useCallback(() => {
+    setSelecting(false);
+    setPicked([]);
+    setAnchor(null);
+  }, []);
+  useEffect(clear, [query, mode, clear]);
   useJobFinished(["search_index"], () => {
     loadStatus();
     setRefresh((n) => n + 1);
@@ -53,7 +67,7 @@ export default function SearchPage() {
     setError(null);
     searchApi
       .search(query, mode, controller.signal)
-      .then((response) => setData(response))
+      .then((response) => { if (!controller.signal.aborted) setData(response); })
       .catch((e) => {
         if (!controller.signal.aborted) setError(errorText(e));
       })
@@ -65,22 +79,49 @@ export default function SearchPage() {
 
   const results = data?.query === query ? data.results : [];
   const openResult = results.find((r) => r.item.id === openId);
+  const ids = results.map((result) => result.item.id);
+  const selected = picked.filter((id) => ids.includes(id));
+  const showSelection = selecting || selected.length > 0;
+
+  function pick(id: number, range: boolean) {
+    const from = anchor === null ? -1 : ids.indexOf(anchor);
+    const to = ids.indexOf(id);
+    setPicked((old) => {
+      if (range && from >= 0 && to >= 0) {
+        const batch = ids.slice(Math.min(from, to), Math.max(from, to) + 1);
+        return [...new Set([...old, ...batch])];
+      }
+      return old.includes(id) ? old.filter((itemId) => itemId !== id) : [...old, id];
+    });
+    setAnchor(id);
+  }
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 px-8 py-10">
+    <div className="mx-auto max-w-5xl space-y-6 px-4 py-8 lg:px-8" onKeyDown={(event) => {
+      if (event.key === "Escape" && showSelection) clear();
+      if (showSelection && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a" &&
+          !(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement)) {
+        event.preventDefault();
+        setPicked(ids);
+      }
+    }}>
       <SearchBar />
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{query ? `Results for “${query}”` : "Search"}</h1>
           <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-            Searches what's said in your videos, their captions and the AI's notes. Similar ideas are found on this
-            PC, even when other words are used.
+            Find words or ideas in captions, transcripts and notes.
           </p>
         </div>
         {query && (
-          <Button variant="secondary" onClick={() => navigate(`/chat?${new URLSearchParams({ q: query })}`)}>
-            Ask about this
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {!!results.length && <Button variant="secondary" onClick={showSelection ? clear : () => setSelecting(true)}>
+              {showSelection ? "Stop selecting" : "Select"}
+            </Button>}
+            <Button variant="secondary" onClick={() => navigate(`/chat?${new URLSearchParams({ q: query })}`)}>
+              Ask Assistant
+            </Button>
+          </div>
         )}
       </header>
 
@@ -121,8 +162,7 @@ export default function SearchPage() {
             <Card>
               <p className="font-medium">Nothing found for “{query}”.</p>
               <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-                Try other words. Only videos with a transcript, a caption or AI notes can be found; make transcripts on
-                the Sort page.
+                Try a different word, or use Sort to prepare more saves.
               </p>
             </Card>
           )}
@@ -133,12 +173,18 @@ export default function SearchPage() {
           )}
           <div className="space-y-3">
             {results.map((result) => (
-              <ResultCard key={result.item.id} item={result.item} result={result} onOpen={setOpenId} />
+              <ResultCard key={`${query}:${mode}:${result.item.id}`} item={result.item} result={result}
+                onOpen={setOpenId} onSelect={pick} selected={selected.includes(result.item.id)} selecting={showSelection}
+                dragIds={selected.includes(result.item.id) ? selected : undefined}
+                selectionMenu={selected.length > 1 && selected.includes(result.item.id)
+                  ? selectionMenuItems(selected, { onDone: reload, onClear: clear }) : undefined} />
             ))}
           </div>
         </>
       )}
 
+      {showSelection && <BulkBar ids={selected} shownIn={null} onDone={reload} onClear={clear}
+        onSelectAll={() => setPicked(ids)} allSelected={ids.length > 0 && selected.length === ids.length} />}
       {openId !== null && (
         <ItemPanel itemId={openId} words={openResult?.words ?? []} onClose={() => setOpenId(null)} />
       )}

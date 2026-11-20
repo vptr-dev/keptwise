@@ -1,21 +1,16 @@
 // The app frame: sidebar on the left (logo and the Search button, the platform
 // picker, then the pages in two sections, Organise and Manage), the page on
 // the right. The sidebar and top strip are frosted glass over the backdrop.
-// The window has no Windows title bar: the top strip (window buttons) and the
-// logo corner are where the window is dragged from.
 // Pages can be dragged into another order within their section.
-import { useState, type DragEvent, type ReactNode } from "react";
+import { useEffect, useState, type DragEvent, type ReactNode } from "react";
 
 import Logo from "./Logo";
 import { NAV_DRAG } from "../features/organize/organizeApi";
 import { movedNav } from "../features/organize/tree";
 import { THEME_LABELS, type ThemeChoice } from "../lib/theme";
 import { icons } from "./icons";
-import { ResizeEdges, WindowButtons, toggleMaximizeOnDoubleClick, useDesktopWindow } from "./WindowControls";
 
 const THEME_ICONS: Record<ThemeChoice, ReactNode> = { light: icons.sun, dark: icons.moon, system: icons.monitor };
-// pywebview drags the window from elements with this class (not from what's inside them).
-const DRAG = "pywebview-drag-region";
 
 export type NavItem = {
   path: string; // "/library"
@@ -72,8 +67,16 @@ export default function Layout({
   onReorderNav?: (paths: string[]) => void; // every page, in the new order
   onStatusClick?: () => void; // open the AI settings
 }) {
-  const desktop = useDesktopWindow();
-  const onDoubleClick = toggleMaximizeOnDoubleClick(desktop);
+  useEffect(() => {
+    const fullScreen = (event: KeyboardEvent) => {
+      const api = (window as Window & { pywebview?: { api?: { toggle_fullscreen?: () => Promise<void> } } }).pywebview?.api;
+      if (event.key !== "F11" || !api?.toggle_fullscreen) return;
+      event.preventDefault();
+      if (!event.repeat) void api.toggle_fullscreen().catch(() => undefined);
+    };
+    window.addEventListener("keydown", fullScreen);
+    return () => window.removeEventListener("keydown", fullScreen);
+  }, []);
   const [dropHint, setDropHint] = useState<{ path: string; after: boolean } | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const sectionOf = (path: string) => sections.find((s) => s.items.some((i) => i.path === path))?.id;
@@ -107,8 +110,7 @@ export default function Layout({
         }`}
       >
         <div
-          className={`${DRAG} flex h-14 shrink-0 items-center gap-2.5 ${compact ? "justify-center px-2" : "px-3"}`}
-          onDoubleClick={onDoubleClick}
+          className={`flex h-14 shrink-0 items-center gap-2.5 ${compact ? "justify-center px-2" : "px-3"}`}
         >
           <Logo className="pointer-events-none h-8 w-8 shrink-0" />
           {!compact && onSearch && (
@@ -249,16 +251,14 @@ export default function Layout({
         </div>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
-        {(desktop || topBar || actions) && (
-          <header className={`${DRAG} flex h-10 shrink-0 items-stretch gap-3 pl-4 ${desktop ? "" : "pr-3"}`} onDoubleClick={onDoubleClick}>
+        {(topBar || actions) && (
+          <header className="flex h-10 shrink-0 items-stretch gap-3 pl-4 pr-3">
             <div className="min-w-0 flex-1 self-center">{topBar}</div>
             {actions}
-            {desktop && <WindowButtons desktop={desktop} />}
           </header>
         )}
         <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
       </div>
-      {desktop && <ResizeEdges desktop={desktop} />}
     </div>
   );
 }

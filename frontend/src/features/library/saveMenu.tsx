@@ -77,13 +77,12 @@ export function saveMenuItems(raw: LibraryItem | ItemCard, { onChange, from, ext
   }
   items.push(
     { kind: "divider" },
-    { label: "Ask the AI Assistant about it", icon: icons.chat, onSelect: () => navigate(`/chat?items=${item.id}`) },
+    { label: "Ask Assistant", icon: icons.chat, onSelect: () => navigate(`/chat?items=${item.id}`) },
     { kind: "divider" },
     {
       label: "Archive in Keptwise",
       icon: icons.trash,
       danger: true,
-      hint: "Put it back from Archive",
       onSelect: () =>
         void attempt(() => patch({ deleted: true }), "Moved to the Keptwise Archive.", () => patch({ deleted: false })),
     },

@@ -1,9 +1,10 @@
 // A background job: live progress with Pause, Resume and Cancel while it
 // runs, and its summary (or what went wrong) when it ends.
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { isActive, jobActions, type Job } from "../lib/jobs";
 import ProgressBar from "./ProgressBar";
+import { toast } from "./Toasts";
 import { Button, Card, Notice } from "./ui";
 
 export default function JobCard({
@@ -17,6 +18,14 @@ export default function JobCard({
   detail?: ReactNode; // extra line under a finished job's summary
   warn?: boolean; // finished, but nothing worked: show it in amber
 }) {
+  const [hidden, setHidden] = useState<Job | null>(null);
+  const dismiss = () => {
+    setHidden(job);
+    void jobActions.dismiss(job.id).catch(() => {
+      setHidden((dismissed) => dismissed === job ? null : dismissed);
+      toast("Couldn’t hide this notice. Try again.", { tone: "error" });
+    });
+  };
   if (isActive(job)) {
     const paused = job.status === "paused";
     return (
@@ -54,9 +63,10 @@ export default function JobCard({
       </Card>
     );
   }
+  if (hidden === job || job.notice_dismissed) return null;
   if (job.status === "failed" || job.status === "interrupted") {
     return (
-      <Notice tone={job.status === "failed" ? "error" : "warning"}>
+      <Notice tone={job.status === "failed" ? "error" : "warning"} onClose={dismiss} closeLabel="Dismiss job notice">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
             <p className="font-medium">
@@ -73,7 +83,7 @@ export default function JobCard({
   }
   if (job.status === "cancelled") {
     return (
-      <Notice>
+      <Notice onClose={dismiss} closeLabel="Dismiss job notice">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <span>Cancelled. The videos that were finished are kept.</span>
           <Button variant="secondary" size="sm" onClick={() => jobActions.resume(job.id)}>
@@ -84,7 +94,7 @@ export default function JobCard({
     );
   }
   return (
-    <Notice tone={warn ? "warning" : "success"}>
+    <Notice tone={warn ? "warning" : "success"} onClose={dismiss} closeLabel="Dismiss job notice">
       <p className="font-medium">{job.message ?? "Done"}</p>
       {detail && <p className="mt-1 text-xs opacity-80">{detail}</p>}
     </Notice>

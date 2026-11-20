@@ -4,7 +4,7 @@ Turns your doomscrolls into productivity.
 
 Keptwise is a free Windows app for the videos you've saved on TikTok, YouTube, Instagram and Facebook. It transcribes them, writes short notes with steps you can follow, and sorts them into collections you can search and ask questions about.
 
-It runs on your PC with no Keptwise account or tracking. A free local AI can work offline once your saves are downloaded. Keptwise uses the exports and video pages to build your library, and leaves your platform accounts and saves as they are.
+It runs on your PC with no Keptwise account or tracking. A free local AI can work offline once your saves have been processed. Keptwise uses the exports and video pages to build your library, and leaves your platform accounts and saves as they are.
 
 ## Features
 
@@ -13,7 +13,8 @@ It runs on your PC with no Keptwise account or tracking. A free local AI can wor
 - **Notes**: a summary, key details and next steps for every save.
 - **Collections** organized by hand or with AI suggestions that you can review and approve.
 - **Plans**: tick off a recipe's or a trip's steps as you go.
-- **Search** by words or by idea, and **ask** questions that are answered only from your saves.
+- **Search** captions, transcripts and notes by word or idea. Tag, file, plan, or archive saves directly from the results.
+- **Assistant** finds saves, shows clickable results, and answers questions with links back to the videos.
 - **Unsave**: a list of saves whose notes are kept, so you can clear them out of the original app.
 
 ## Install
@@ -22,7 +23,7 @@ It runs on your PC with no Keptwise account or tracking. A free local AI can wor
 2. Run it. If Windows says "Windows protected your PC", click **More info**, then **Run anyway** (the installer isn't code-signed). No admin password is needed.
 3. Open Keptwise from the Start menu.
 
-On first start you pick your look and your AI:
+On first start you pick your look and AI. A short practice tutorial walks through Import, Sort and Search.
 
 - **Free, on this PC** with [Ollama](https://ollama.com/download). The app downloads the model for you (`gemma4:12b`, about 8 GB, or `gemma4:e4b` for slower PCs).
 - **Cloud** with your own Claude, OpenAI, Gemini or OpenRouter key. The key is stored in Windows Credential Manager, and the app asks before any batch that costs money.
@@ -39,7 +40,7 @@ The Import screen has a guide for each platform. Ask for the **JSON** format whe
 - **YouTube**: [Google Takeout](https://takeout.google.com) → YouTube and YouTube Music
 - **Instagram / Facebook**: Accounts Centre → Your information and permissions → Download your information
 
-Your data lives in `%APPDATA%\Keptwise`. The app checks GitHub once a day for a new version and only shows a link; turn that off in Settings.
+Your data lives in `%APPDATA%\Keptwise`. The app checks GitHub once a day. You can check sooner or install an update from **Settings → Updates**.
 
 ## Development
 

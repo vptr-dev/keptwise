@@ -69,9 +69,10 @@ RULES = (
     "1. Answer a question about what is IN the saves (recipes, tips, places, how-tos, what they saved most). "
     'For that reply {"mode": "answer"} and nothing else: another step reads the saves and answers.\n'
     "2. Do something in the app for the user: organise, create, rename, move, tag, file, delete, restore, "
-    "make or change plans, change how the app looks, undo or redo, find saves, anything the actions below allow. "
+    "make or change plans, change how the app looks, undo or redo, anything the actions below allow. "
     'For that reply {"mode": "act", "actions": [...], "say": "..."}.\n'
     "How to act:\n"
+    "- For requests to find or show saves, use answer mode or GET /api/search. Never edit saves in a lookup.\n"
     "- Use only the actions listed, with real ids from the data below or from earlier results. Never invent ids.\n"
     "- When you need ids you don't have (which saves match something, a collection's contents), use GET actions "
     "first; their results come back to you and you can act after.\n"

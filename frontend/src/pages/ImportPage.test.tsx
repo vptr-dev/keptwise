@@ -83,7 +83,7 @@ test("choosing a zip copies it, imports it and shows what was found", async () =
         found: 3,
         new: 3,
         already_had: 0,
-        collections: [],
+        collections: ["Recipes"],
         notes: ["Skipped 2 liked videos: likes aren't saves."],
       },
     ],
@@ -92,6 +92,7 @@ test("choosing a zip copies it, imports it and shows what was found", async () =
     FakeEventSource.last?.emit("job", importJob({ status: "done", progress: 3, total: 3, message: result.message, result })),
   );
   expect(await screen.findByText("Import finished")).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Import collections" })).toHaveAttribute("href", "#/collections/links");
   expect(screen.getByText("Imported 3 new saves from TikTok.")).toBeInTheDocument();
   expect(screen.getByText("3 new")).toBeInTheDocument();
   expect(screen.getByText("Skipped 2 liked videos: likes aren't saves.")).toBeInTheDocument();

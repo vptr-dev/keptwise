@@ -7,6 +7,7 @@ where that piece starts in the text, so the UI can say "about 1:20 in".
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 from dataclasses import dataclass, field
@@ -95,8 +96,11 @@ def _start_of(snippet: str, full_text: str) -> int | None:
     return found if found >= 0 else None
 
 
-def keyword_search(conn: sqlite3.Connection, query: str, limit: int = 30) -> list[KeywordHit]:
+def keyword_search(conn: sqlite3.Connection, query: str, limit: int = 30,
+                   allowed_ids: set[int] | None = None) -> list[KeywordHit]:
     """All words first; if nothing has every word, any of the words."""
+    allowed = "" if allowed_ids is None else " AND rowid IN (SELECT value FROM json_each(?))"
+    scope_params = () if allowed_ids is None else (json.dumps(list(allowed_ids)),)
     for any_word in (False, True):
         match = fts_query(query, any_word)
         if match is None:
@@ -109,9 +113,9 @@ def keyword_search(conn: sqlite3.Connection, query: str, limit: int = 30) -> lis
                        snippet(search_fts, 0, ?, ?, ?, {SNIPPET_TOKENS}) AS s0,
                        snippet(search_fts, 1, ?, ?, ?, {SNIPPET_TOKENS}) AS s1,
                        snippet(search_fts, 2, ?, ?, ?, {SNIPPET_TOKENS}) AS s2
-                FROM search_fts WHERE search_fts MATCH ?
+                FROM search_fts WHERE search_fts MATCH ?{allowed}
                 ORDER BY rank LIMIT ?""",
-            (START, END, ELLIPSIS) * 3 + (match, limit),
+            (START, END, ELLIPSIS) * 3 + (match, *scope_params, limit),
         ).fetchall()
         if rows:
             return [_hit(row) for row in rows]

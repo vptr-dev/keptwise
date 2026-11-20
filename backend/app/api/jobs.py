@@ -58,6 +58,13 @@ def cancel_job(job_id: int, svc: AppServices = Depends(services)) -> dict[str, A
     return svc.jobs.get(job_id) or {}
 
 
+@router.post("/jobs/{job_id}/dismiss-notice", status_code=204)
+def dismiss_notice(job_id: int, svc: AppServices = Depends(services)) -> None:
+    if not svc.jobs.dismiss_notice(job_id):
+        _require(svc, job_id)
+        raise HTTPException(status_code=409, detail="This job is still active.")
+
+
 def _sse(event_type: str, data: Any, seq: int | None = None) -> str:
     lines = []
     if seq is not None:

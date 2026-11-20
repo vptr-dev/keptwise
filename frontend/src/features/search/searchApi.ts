@@ -2,7 +2,7 @@
 // details and chat.
 import { api } from "../../lib/api";
 import type { Job } from "../../lib/jobs";
-import type { ItemCard } from "../sorting/sortingApi";
+import type { LibraryItem } from "../library/libraryApi";
 
 export type Segment = { text: string; hit: boolean };
 
@@ -22,7 +22,7 @@ export type SimilarMatch = {
 };
 
 export type SearchResult = {
-  item: ItemCard;
+  item: LibraryItem;
   found_by: ("words" | "similar")[];
   words: string[];
   matches: Match[];
@@ -41,11 +41,11 @@ export type IndexStatus = {
   job: Job | null;
 };
 
-export type ItemDetails = { item: ItemCard; transcript: string | null };
+export type ItemDetails = { item: LibraryItem; transcript: string | null };
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
-export type ChatSource = { number: number; item_id: number; item: ItemCard };
+export type ChatSource = { number: number; item_id: number; item: LibraryItem };
 
 export type ChatReply = {
   found: boolean;

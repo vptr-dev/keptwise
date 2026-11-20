@@ -96,6 +96,11 @@ function ResultCard({ result, message }: { result: ImportResult | null; message:
           ))}
         </ul>
       )}
+      {result?.platforms.some((platform) => platform.collections.length > 0) && (
+        <a href="#/collections/links" className="mt-4 inline-block text-sm font-medium text-indigo-700 underline dark:text-indigo-300">
+          Import collections
+        </a>
+      )}
     </Card>
   );
 }

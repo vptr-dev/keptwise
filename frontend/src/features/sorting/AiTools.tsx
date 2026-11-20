@@ -60,7 +60,7 @@ export function AskAgain() {
         {unsorted > 0 && (
           <Button variant="secondary" size="sm" disabled={!!running} onClick={() => void run((c) => sortingApi.resort("unsorted", true, c))}>
             <span className="h-4 w-4">{icons.sparkle}</span>
-            Suggest again for the {unsorted.toLocaleString()} in Unsorted
+            Retry {unsorted.toLocaleString()} collection suggestions
           </Button>
         )}
         {untagged > 0 && (
@@ -71,7 +71,7 @@ export function AskAgain() {
         )}
       </div>
       <p className="kw-tip text-xs text-zinc-500 dark:text-zinc-400">
-        Handy after you've made new collections. Saves you placed yourself are never moved.
+        Your own placements stay where you put them.
       </p>
       {pending && (
         <Notice tone="warning" onClose={() => setPending(null)}>
@@ -183,7 +183,7 @@ export function AiOptions() {
   }, []);
   return (
     <details id="sort-options" open={showOptions || undefined} className="scroll-mt-4 rounded-2xl border border-zinc-200 bg-white px-5 py-4 dark:border-zinc-800 dark:bg-zinc-900">
-      <summary className="cursor-pointer font-medium">Options: how the AI picks collections and tags, and your rules</summary>
+      <summary className="cursor-pointer font-medium">Collections, tags and rules</summary>
       <div className="mt-5 space-y-8">
         <CollectionSortOptions collections={collections} />
         <div className="space-y-5 border-t border-zinc-100 pt-5 dark:border-zinc-800">

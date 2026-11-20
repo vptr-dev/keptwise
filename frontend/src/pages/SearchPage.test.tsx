@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import SearchBar from "../features/search/SearchBar";
@@ -71,6 +71,13 @@ test("search results show highlighted words, where they are, and similar ideas",
 
   fireEvent.click(screen.getByRole("tab", { name: "Your words" }));
   await waitFor(() => expect(calls.some((c) => c.url.includes("mode=words"))).toBe(true));
+
+  const choices = screen.getByRole("button", { name: "Actions for Ramen at home" });
+  fireEvent.click(choices);
+  const menu = screen.getByRole("menu");
+  expect(within(menu).getByRole("menuitem", { name: "Collections…" })).toBeInTheDocument();
+  expect(within(menu).getByRole("menuitem", { name: "Archive in Keptwise" })).toBeInTheDocument();
+  fireEvent.keyDown(menu, { key: "Escape" });
 
   // Opening a result shows its transcript.
   fireEvent.click(screen.getByTestId("result-2"));

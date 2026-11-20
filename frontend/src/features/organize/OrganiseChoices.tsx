@@ -169,7 +169,8 @@ function BringOver({
 
   const { links, import_destinations: destinations = [] } = data;
   const todo = links.filter((l) => l.collection_id === null);
-  const namesOnly = links.some((l) => !l.membership_known);
+  const mapped = links.filter((link) => link.membership_known);
+  const namesOnly = links.some((link) => !link.membership_known);
   const where = inside ? `inside “${inside.name}”` : `in ${spaceName}`;
   const options = collections.map((collection) => {
     const space = spaces.find((entry) => entry.id === collection.space_id);
@@ -209,7 +210,7 @@ function BringOver({
       {destinations.length > 0 && <section className="space-y-2" aria-label="New import destinations">
         <h3 className="text-sm font-semibold">Where new saves go</h3>
         <p className="text-xs text-zinc-600 dark:text-zinc-400">
-          When an import has a matching collection link below, that link takes priority. Existing saves keep their placements.
+          New saves go here unless the export says they belong to a folder you linked.
           {collections.length === 0 && " Create a collection first to choose a destination."}
         </p>
         <div className="grid gap-2 sm:grid-cols-2">
@@ -239,12 +240,20 @@ function BringOver({
           Linking an export collection adds its known saves to the destination. Existing placements stay.
         </p>}
         {namesOnly && <p className="text-xs text-zinc-600 dark:text-zinc-400">
-          Some exports, including TikTok’s, list collection names only. You can use those names as folders or AI sorting hints.
+TikTok may export folder names without showing which videos are in them. You can import the names as empty collections.
         </p>}
-        {links.length > 0 && <details>
-          <summary className="cursor-pointer text-sm">Manage collection links ({links.length})</summary>
+        {namesOnly && <details>
+          <summary className="cursor-pointer text-sm">Preview folder names</summary>
+          <ul className="mt-2 flex max-h-32 flex-wrap gap-1.5 overflow-y-auto">
+            {links.filter((link) => !link.membership_known).map((link) => (
+              <li key={link.platform + ":" + link.name} className="rounded-md bg-zinc-100 px-2 py-1 text-xs dark:bg-zinc-800">{link.name}</li>
+            ))}
+          </ul>
+        </details>}
+        {mapped.length > 0 && <details>
+          <summary className="cursor-pointer text-sm">Manage collection links ({mapped.length})</summary>
           <ul className="mt-2 divide-y divide-zinc-200 dark:divide-zinc-800">
-            {links.map((link) => (
+            {mapped.map((link) => (
               <li className="grid items-center gap-2 py-2 sm:grid-cols-2" key={`${link.platform}-${link.name}`}>
                 <div>
                   <p className="text-sm">{link.name}</p>
@@ -283,7 +292,7 @@ function BringOver({
         </details>}
         <div className="flex flex-wrap gap-2">
           {todo.length > 0 && <Button disabled={busy} onClick={() => void save(transfer)}>
-            Make {todo.length} collection{todo.length === 1 ? "" : "s"} here
+            Import {todo.length} collection{todo.length === 1 ? "" : "s"}
           </Button>}
           {message && namesOnly && <Button variant="secondary" onClick={() => navigate("/transcripts")}>Go to Sort</Button>}
         </div>
