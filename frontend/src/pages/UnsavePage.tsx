@@ -127,7 +127,7 @@ export default function UnsavePage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Unsave</h1>
           <p className="kw-tip text-sm text-zinc-500 dark:text-zinc-400">
-            These saves are kept here with their notes, so you can remove them from the app you saved them in.
+            Mark a save after you unsave it yourself on TikTok or another platform. Archived saves can appear here as reminders.
           </p>
         </div>
         {items.length > 0 && (

@@ -57,7 +57,7 @@ function VideoRow({ video }: { video: RecentVideo }) {
             {video.error}
           </p>
         ) : video.no_speech ? (
-          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">No speech in this video (probably just music).</p>
+          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">The speech model didn't detect any words.</p>
         ) : (
           video.transcript_preview && (
             <p className="mt-1 line-clamp-2 text-sm text-zinc-600 dark:text-zinc-300">“{video.transcript_preview}”</p>
@@ -71,6 +71,6 @@ function VideoRow({ video }: { video: RecentVideo }) {
 function StatusBadge({ video }: { video: RecentVideo }) {
   if (video.status === "failed") return <Badge tone="red">Couldn't read</Badge>;
   if (video.error) return <Badge tone="amber">Details only</Badge>;
-  if (video.no_speech) return <Badge>No speech</Badge>;
+  if (video.no_speech) return <Badge>No speech detected</Badge>;
   return <Badge tone="green">Transcribed</Badge>;
 }

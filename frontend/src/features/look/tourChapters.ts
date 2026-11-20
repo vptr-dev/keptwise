@@ -101,7 +101,7 @@ export const CHAPTERS: Chapter[] = [
     intro: "Keptwise’s Archive and the platform’s own saved list are separate. You control both.",
     icon: "archive",
     steps: [
-      ["Recover a save from Archive", "Deleting from Library sends the save to Archive. Open the Deleted tab to put it back in Library or choose Delete for good."],
+      ["Recover a save from Archive", "Archiving moves a save within Keptwise. In Archive → Archived, put it back in Library or choose Delete for good."],
       ["Unsave on the platform yourself", "Unsave is a checklist. Open the original, unsave it on the platform if you want, then mark the step done. Keptwise keeps its local copy."],
       ["Review before clearing the library", "Settings → Storage separates library clearing from clearing backups. A whole-library clear requires you to type DELETE and removes its Undo history."],
     ],

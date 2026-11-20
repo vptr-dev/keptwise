@@ -10,7 +10,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from app.db.items_repo import NewItem, get_item_row, get_transcript, upsert_item
+from app.db.items_repo import NewItem, get_item_row, get_transcript, update_item, upsert_item
 from app.enrich.fetch import TooLong, VideoDetails
 from app.enrich.job import OFFLINE, make_enrich_handler
 from app.enrich.speech_models import COMPLETE_MARKER, model_folder
@@ -27,7 +27,7 @@ class FakeFetcher:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    def details(self, url: str, platform: str) -> tuple[VideoDetails, Any]:
+    def details(self, url: str, platform: str, author: str | None = None) -> tuple[VideoDetails, Any]:
         self.calls.append(url)
         if "private" in url:
             raise RuntimeError("ERROR: [TikTok] 1: This video is private")
@@ -150,7 +150,7 @@ def test_each_kind_of_video_ends_up_right(svc: AppServices, fetcher: FakeFetcher
     assert item(svc, music)["transcript"]["text"] == ""
     blocked = item(svc, private)
     assert blocked["status"] == "failed"
-    assert blocked["error"] == "This video is private, so only the person who posted it can see it."
+    assert blocked["error"] == "This post is private or restricted. Open it with an account that already has access."
     no_sound = item(svc, nosound)
     assert no_sound["status"] == "enriched" and no_sound["transcript"] is None
     assert no_sound["error"].startswith("Got the details, but not the sound.")
@@ -194,7 +194,7 @@ def test_tiktok_refusing_the_file_keeps_the_save_waiting(svc: AppServices, fetch
     for item_id in ids[:4]:
         waiting = item(svc, item_id)
         assert waiting["status"] == "imported" and waiting["description"]  # details kept
-        assert "HTTP Error 403" in waiting["error"]
+        assert "The site blocked this request" in waiting["error"]
     assert item(svc, ids[4])["status"] == "enriched"
 
 
@@ -240,7 +240,7 @@ def test_overview_counts_and_speech_settings(api: TestClient, svc: AppServices, 
     data = api.get("/api/enrich").json()
     assert data["counts"] == {
         "total": 4, "waiting": 1, "done": 2, "failed": 1, "no_speech": 1, "gone": 0,
-        "failed_reasons": [{"text": "This video is private, so only the person who posted it can see it.", "count": 1}],
+        "failed_reasons": [{"text": "This post is private or restricted. Open it with an account that already has access.", "count": 1}],
     }
     speech = data["speech"]
     assert speech["model"] == "small" and speech["device"] == "auto"
@@ -269,9 +269,9 @@ def test_start_picks_the_newest_waiting_saves(api: TestClient, svc: AppServices,
 
     response = api.post("/api/enrich/start", json={"count": 5})
     assert response.status_code == 400
-    assert "already has its transcript" in response.json()["detail"]
+    assert "no matching videos" in response.json()["detail"]
     assert api.post("/api/enrich/start", json={"which": "failed"}).status_code == 400
-    assert api.post("/api/enrich/start", json={"which": "other"}).status_code == 400
+    assert api.post("/api/enrich/start", json={"which": "other"}).status_code == 422
     assert api.post("/api/enrich/start", json={"count": 0}).status_code == 422
 
 
@@ -280,7 +280,7 @@ def test_failed_videos_can_be_tried_again(api: TestClient, svc: AppServices, fet
     run(svc, ids)
     job = api.post("/api/enrich/start", json={"count": None, "which": "failed"}).json()
     assert job["params"]["item_ids"] == ids
-    assert job["title"] == "Try 1 failed video again"
+    assert job["title"] == "Retry 1 video"
 
 
 def test_recent_videos_and_thumbnails(api: TestClient, svc: AppServices, fetcher: FakeFetcher) -> None:
@@ -306,3 +306,43 @@ def test_thumbnail_route_stays_inside_its_folder(api: TestClient, svc: AppServic
     with svc.db.connect() as conn:
         conn.execute("UPDATE items SET thumbnail_path = '../secret.txt' WHERE id = ?", (item_id,))
     assert api.get(f"/api/items/{item_id}/thumbnail").status_code == 404
+
+
+def test_legacy_unavailable_saves_can_be_recovered(api: TestClient, svc: AppServices, fetcher: FakeFetcher) -> None:
+    working, restricted, archived = add_items(svc, "ok", "private", "archived")
+    with svc.db.connect() as conn:
+        for item_id in (working, restricted, archived):
+            update_item(conn, item_id, status="failed", gone_at="2025-01-01T09:00:00Z")
+        update_item(conn, archived, deleted_at="2025-01-01T09:00:00Z")
+    job = api.post("/api/enrich/start", json={"which": "unavailable", "count": None}).json()
+    assert job["params"]["item_ids"] == [restricted, working]
+    wait_for_status(svc, job["id"], "done")
+    assert item(svc, working)["status"] == "enriched" and item(svc, working)["gone_at"] is None
+    assert item(svc, restricted)["status"] == "failed" and item(svc, restricted)["gone_at"] is None
+    assert api.get("/api/enrich").json()["counts"]["gone"] == 0
+    assert item(svc, archived)["deleted_at"] and item(svc, archived)["gone_at"]
+
+
+def test_retry_gets_missing_speech_without_losing_existing_organization(
+    api: TestClient, svc: AppServices, fetcher: FakeFetcher
+) -> None:
+    from app.db.items_repo import save_transcript
+
+    missed, other = add_items(svc, "ok", "ok")
+    with svc.db.connect() as conn:
+        for item_id in (missed, other):
+            update_item(conn, item_id, status="processed", title="Already organized", done=1, unsaved=1)
+            save_transcript(conn, item_id, "", None, "whisper-old")
+        conn.execute("INSERT INTO collections(id, name) VALUES (1, 'My collection')")
+        conn.execute("INSERT INTO item_collections(item_id, collection_id, source) VALUES (?, 1, 'user')", (missed,))
+    job = api.post("/api/enrich/start", json={"which": "no_speech", "item_id": missed}).json()
+    assert job["params"]["item_ids"] == [missed]
+    wait_for_status(svc, job["id"], "done")
+    fresh = item(svc, missed)
+    assert fresh["transcript"]["text"] == "boil the pasta"
+    assert fresh["title"] == "Already organized"
+    assert fresh["status"] == "processed" and fresh["done"] and fresh["unsaved"]
+    assert item(svc, other)["transcript"]["text"] == ""
+    with svc.db.connect() as conn:
+        link = conn.execute("SELECT collection_id, source FROM item_collections WHERE item_id = ?", (missed,)).fetchone()
+        assert tuple(link) == (1, "user")

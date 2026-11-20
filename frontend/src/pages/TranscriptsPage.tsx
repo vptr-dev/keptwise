@@ -8,8 +8,9 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Button, Card, Notice } from "../components/ui";
 import EnrichJobCard from "../features/enrich/EnrichJobCard";
-import { enrichApi, type EnrichOverview, type RecentVideo } from "../features/enrich/enrichApi";
+import { enrichApi, type EnrichOverview, type EnrichTarget, type RecentVideo } from "../features/enrich/enrichApi";
 import RecentVideos from "../features/enrich/RecentVideos";
+import TikTokAccess from "../features/enrich/TikTokAccess";
 import { AiOptions, AskAgain, ClearAi } from "../features/sorting/AiTools";
 import NotesStep from "../features/sorting/NotesStep";
 import Unsorted from "../features/sorting/Unsorted";
@@ -52,7 +53,7 @@ export default function TranscriptsPage() {
   const currentId = running?.id ?? Math.max(started?.id ?? 0, enrichJobs[0]?.id ?? 0);
   const current = enrichJobs.find((job) => job.id === currentId) ?? started ?? undefined;
 
-  async function start(count: number | null, which: "waiting" | "failed" = "waiting") {
+  async function start(count: number | null, which: EnrichTarget = "waiting") {
     setBusy(true);
     setError(null);
     try {
@@ -67,14 +68,14 @@ export default function TranscriptsPage() {
   const counts = overview?.counts;
   const speech = overview?.speech;
   const model = speech?.models.find((m) => m.id === speech.model);
-  const nothingImported = counts !== undefined && counts.total === 0;
+  const nothingImported = counts !== undefined && counts.total === 0 && !counts.gone;
 
   return (
     <div className="mx-auto max-w-4xl space-y-8 px-8 py-10">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Sort</h1>
         <p className="kw-tip mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Everything the AI does happens here. The app reads each saved video's public page and writes down what's said
+          Everything the AI does happens here. The app reads each saved video's page and writes down what's said
           (on this PC, for free); the AI writes notes and suggests where each save goes and how to tag it; you approve.
           The other pages are yours to look through and change by hand.
         </p>
@@ -84,15 +85,15 @@ export default function TranscriptsPage() {
         <Card className="p-4">
           <dl className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             <Count label="Waiting" value={counts.waiting} testId="count-waiting" />
-            <Count label="Done" value={counts.done} testId="count-done" />
-            <Count label="No sound" value={counts.no_speech} testId="count-no-speech" title="Read fine, but the video has no sound or speech: the notes use the caption and pictures." />
+            <Count label="Details ready" value={counts.done} testId="count-done" />
+            <Count label="No speech detected" value={counts.no_speech} testId="count-no-speech" title="The speech model found no words. The clip may still have sound." />
             <Count label="Couldn't read" value={counts.failed} testId="count-failed" />
             <Count
-              label="Taken down"
+              label="Unavailable"
               value={counts.gone ?? 0}
               testId="count-gone"
               href="#/archive/gone"
-              title="Deleted on the platform. They're in Archive → Deleted TikToks."
+              title="Keptwise previously marked these videos as unavailable. You can check them again."
             />
           </dl>
           {(counts.failed_reasons ?? []).length > 0 && (
@@ -154,7 +155,18 @@ export default function TranscriptsPage() {
                   Try the {counts.failed.toLocaleString("en-GB")} failed again
                 </Button>
               )}
+              {counts.no_speech > 0 && (
+                <Button variant="ghost" disabled={busy || running !== undefined} onClick={() => start(null, "no_speech")}>
+                  Retry {counts.no_speech.toLocaleString("en-GB")} without speech
+                </Button>
+              )}
+              {!!counts.gone && (
+                <Button variant="ghost" disabled={busy || running !== undefined} onClick={() => start(null, "unavailable")}>
+                  Recheck {counts.gone.toLocaleString("en-GB")} unavailable
+                </Button>
+              )}
             </div>
+            <TikTokAccess connected={overview?.tiktok_session ?? false} onChange={refresh} />
             {model && (
               <p className="mt-4 text-xs text-zinc-500 dark:text-zinc-400">
                 Speech model: {model.label}

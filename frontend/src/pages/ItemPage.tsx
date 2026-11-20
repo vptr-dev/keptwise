@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { icons } from "../components/icons";
 import { Badge, Button, Card, Notice } from "../components/ui";
-import { formatDuration } from "../features/enrich/enrichApi";
+import { enrichApi, formatDuration } from "../features/enrich/enrichApi";
 import { PlanPanel } from "../features/library/QuickActions";
 import StepsChecklist from "../features/library/StepsChecklist";
 import Thumb from "../features/library/Thumb";
@@ -44,7 +44,7 @@ function NoNotesYet({ item }: { item: LibraryItem }) {
   if (item.gone) {
     return (
       <Notice tone="warning">
-        This video was taken down on {item.platform_name}, so it's in Archive → Deleted TikToks. Anything kept here stays.
+        This video is marked unavailable on {item.platform_name}. Your saved details are still here.
       </Notice>
     );
   }
@@ -160,6 +160,22 @@ export default function ItemPage({ itemId }: { itemId: number }) {
     item.saved_at ? `saved ${formatDate(item.saved_at)}` : null,
   ].filter(Boolean);
   const hasNotes = item.status === "processed";
+  const retryTarget = item.gone ? "unavailable" : item.no_sound ? "no_speech"
+    : item.error && item.status === "imported" ? "waiting"
+      : item.status === "failed" || item.error?.startsWith("Got the details,") ? "failed" : null;
+
+  async function retryTranscript() {
+    if (!retryTarget) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await enrichApi.start(1, retryTarget, itemId);
+      navigate("/sort");
+    } catch (e) {
+      setError(errorText(e));
+      setBusy(false);
+    }
+  }
   const idea = item.collections.length === 0 ? suggestionOf(item, collections) : null;
   const started = item.steps_checked.some(Boolean);
 
@@ -176,8 +192,8 @@ export default function ItemPage({ itemId }: { itemId: number }) {
             <Badge>{item.platform_name}</Badge>
             {item.kind_label && <Badge tone="indigo">{item.kind_label}</Badge>}
             {!hasNotes && !item.gone && item.status !== "failed" && <Badge tone="amber">Needs notes</Badge>}
-            {item.no_sound && <Badge>No sound</Badge>}
-            {item.gone && <Badge tone="red">Taken down</Badge>}
+            {item.no_sound && <Badge>No speech detected</Badge>}
+            {item.gone && <Badge tone="red">Unavailable</Badge>}
             {item.unsaved && <Badge>Unsaved on {item.platform_name}</Badge>}
           </div>
           <h1 className="mt-2 line-clamp-3 break-words text-2xl font-semibold leading-tight tracking-tight" title={displayTitle(item)}>
@@ -199,15 +215,20 @@ export default function ItemPage({ itemId }: { itemId: number }) {
               <span className="h-4 w-4">{icons.chat}</span>
               Ask AI
             </Button>
+            {!item.deleted && retryTarget && (
+              <Button variant="secondary" disabled={busy} onClick={() => void retryTranscript()}>
+                {item.gone ? "Check availability" : "Retry transcript"}
+              </Button>
+            )}
             {!item.deleted && (
               <Button
                 variant="ghost"
                 disabled={busy}
-                title="It moves to the Archive, where you can put it back, and goes on the Unsave list"
+                title="Move this save to the Keptwise Archive, where you can put it back"
                 onClick={() => void update(() => libraryApi.patch(itemId, { deleted: true }))}
               >
                 <span className="h-4 w-4">{icons.trash}</span>
-                Delete
+                Archive
               </Button>
             )}
           </div>
@@ -217,7 +238,7 @@ export default function ItemPage({ itemId }: { itemId: number }) {
       {item.deleted && (
         <div className="mt-4">
           <Notice tone="warning">
-            You deleted this save. It's in the Archive and doesn't show in your Library.{" "}
+            This save is archived in Keptwise.{" "}
             <button type="button" className="font-medium underline" disabled={busy} onClick={() => void update(() => libraryApi.patch(itemId, { deleted: false }))}>
               Put it back
             </button>

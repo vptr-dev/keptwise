@@ -3,27 +3,39 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
-from app.enrich.job import DEVICE_KEY, DEVICES, MODEL_KEY
+from app.enrich.job import DEVICE_KEY, DEVICES, MODEL_KEY, now_iso
 from app.enrich.speech_models import DEFAULT_MODEL, MODELS, is_downloaded
+from app.enrich.tiktok_session import MAX_SESSION_BYTES
 from app.importers import PLATFORM_NAMES
 from app.services import AppServices, services
 
 router = APIRouter(prefix="/api")
 
 PREVIEW_CHARS = 280
+FAILED = """(i.status = 'failed' OR (
+    i.error LIKE 'Got the details,%'
+    AND NOT EXISTS (SELECT 1 FROM transcripts t WHERE t.item_id = i.id)
+))"""
+NO_SPEECH = "EXISTS (SELECT 1 FROM transcripts t WHERE t.item_id = i.id AND t.text = '')"
+TARGETS = {
+    "waiting": "i.gone_at IS NULL AND i.status = 'imported'",
+    "failed": f"i.gone_at IS NULL AND i.status <> 'imported' AND {FAILED}",
+    "no_speech": f"i.gone_at IS NULL AND {NO_SPEECH}",
+    "unavailable": "i.gone_at IS NOT NULL",
+}
 
 
 class StartBody(BaseModel):
     # How many videos to do; None = all of them.
     count: int | None = Field(default=5, ge=1)
-    # "waiting" = not done yet; "failed" = try the ones that failed again.
-    which: str = "waiting"
+    which: Literal["waiting", "failed", "no_speech", "unavailable"] = "waiting"
+    item_id: int | None = Field(default=None, ge=1)
 
 
 class SpeechSettings(BaseModel):
@@ -32,29 +44,26 @@ class SpeechSettings(BaseModel):
 
 
 def _counts(conn: sqlite3.Connection) -> dict[str, Any]:
-    """Saves taken down on the platform (gone_at) are left out: they're in
-    the Archive's Deleted TikToks, and counted on their own."""
     rows = conn.execute(
         "SELECT status, COUNT(*) AS n FROM items WHERE deleted_at IS NULL AND gone_at IS NULL GROUP BY status"
     ).fetchall()
     by_status = {row["status"]: int(row["n"]) for row in rows}
     no_speech = conn.execute(
-        "SELECT COUNT(*) FROM transcripts t JOIN items i ON i.id = t.item_id "
-        "WHERE t.text = '' AND i.deleted_at IS NULL"
+        f"SELECT COUNT(*) FROM items i WHERE i.deleted_at IS NULL AND {TARGETS['no_speech']}"
     ).fetchone()[0]
     gone = conn.execute("SELECT COUNT(*) FROM items WHERE gone_at IS NOT NULL AND deleted_at IS NULL").fetchone()[0]
     reasons = conn.execute(
-        """SELECT coalesce(error, 'No reason given.') AS text, COUNT(*) AS n FROM items
-           WHERE status = 'failed' AND gone_at IS NULL AND deleted_at IS NULL GROUP BY 1 ORDER BY 2 DESC LIMIT 6"""
+        f"""SELECT coalesce(error, 'No reason given.') AS text, COUNT(*) AS n FROM items i
+            WHERE i.deleted_at IS NULL AND {TARGETS['failed']} GROUP BY 1 ORDER BY 2 DESC"""
     ).fetchall()
     return {
         "total": sum(by_status.values()),
         "waiting": by_status.get("imported", 0),
         "done": by_status.get("enriched", 0) + by_status.get("processed", 0),
-        "failed": by_status.get("failed", 0),
+        "failed": sum(int(row["n"]) for row in reasons),
         "no_speech": int(no_speech),
         "gone": int(gone),
-        "failed_reasons": [{"text": row["text"], "count": int(row["n"])} for row in reasons],
+        "failed_reasons": [{"text": row["text"], "count": int(row["n"])} for row in reasons[:6]],
     }
 
 
@@ -80,7 +89,7 @@ def _speech(svc: AppServices) -> dict[str, Any]:
 def overview(svc: AppServices = Depends(services)) -> dict[str, Any]:
     with svc.db.connect() as conn:
         counts = _counts(conn)
-    return {"counts": counts, "speech": _speech(svc)}
+    return {"counts": counts, "speech": _speech(svc), "tiktok_session": bool(svc.tiktok_session.cookies())}
 
 
 @router.put("/enrich/settings")
@@ -96,30 +105,55 @@ def change_settings(body: SpeechSettings, svc: AppServices = Depends(services)) 
     return _speech(svc)
 
 
+@router.put("/enrich/tiktok-session")
+async def connect_tiktok(request: Request, svc: AppServices = Depends(services)) -> dict[str, bool]:
+    if request.headers.get("content-type", "").split(";")[0] != "application/octet-stream":
+        raise HTTPException(status_code=415, detail="Choose a TikTok session file.")
+    content = bytearray()
+    async for chunk in request.stream():
+        if len(content) + len(chunk) > MAX_SESSION_BYTES:
+            raise HTTPException(status_code=413, detail="Choose a session file containing only TikTok cookies.")
+        content.extend(chunk)
+    try:
+        svc.tiktok_session.load(content.decode("utf-8"))
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=400, detail="Choose a TikTok cookies.txt file in Netscape format.") from None
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from None
+    return {"connected": True}
+
+
+@router.delete("/enrich/tiktok-session")
+def disconnect_tiktok(svc: AppServices = Depends(services)) -> dict[str, bool]:
+    svc.tiktok_session.clear()
+    return {"connected": False}
+
+
 @router.post("/enrich/start")
 def start(body: StartBody, svc: AppServices = Depends(services)) -> dict[str, Any]:
-    status = {"waiting": "imported", "failed": "failed"}.get(body.which)
-    if status is None:
-        raise HTTPException(status_code=400, detail="'which' must be 'waiting' or 'failed'.")
+    since = now_iso()
     limit = body.count if body.count is not None else -1  # -1 = no limit in SQLite
+    target = TARGETS[body.which]
+    params: tuple[int, ...] = (limit,)
+    if body.item_id is not None:
+        target += " AND i.id = ?"
+        params = (body.item_id, limit)
     with svc.db.connect() as conn:
         rows = conn.execute(
-            "SELECT id FROM items WHERE status = ? AND deleted_at IS NULL AND gone_at IS NULL "
-            "ORDER BY saved_at DESC, id DESC LIMIT ?",
-            (status, limit),
+            f"SELECT i.id FROM items i WHERE i.deleted_at IS NULL AND {target} "
+            "ORDER BY i.saved_at DESC, i.id DESC LIMIT ?",
+            params,
         ).fetchall()
     ids = [int(row["id"]) for row in rows]
     if not ids:
-        detail = (
-            "Every imported video already has its transcript. Import more saves first."
-            if body.which == "waiting"
-            else "No videos failed, so there's nothing to try again."
-        )
-        raise HTTPException(status_code=400, detail=detail)
-    title = f"Transcripts for {len(ids):,} video{'s' if len(ids) != 1 else ''}"
-    if body.which == "failed":
-        title = f"Try {len(ids):,} failed video{'s' if len(ids) != 1 else ''} again"
-    job_id = svc.runner.submit("enrich", title, {"item_ids": ids})
+        raise HTTPException(status_code=400, detail="There are no matching videos to try.")
+    job_params: dict[str, Any] = {"item_ids": ids}
+    count = f"{len(ids):,} video{'s' if len(ids) != 1 else ''}"
+    title = f"Transcripts for {count}"
+    if body.which != "waiting":
+        job_params["retry_since"] = since
+        title = f"Retry {count}"
+    job_id = svc.runner.submit("enrich", title, job_params)
     return svc.jobs.get(job_id) or {}
 
 

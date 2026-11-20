@@ -4,14 +4,14 @@ Turns your doomscrolls into productivity.
 
 Keptwise is a free Windows app for the videos you've saved on TikTok, YouTube, Instagram and Facebook. It transcribes them, writes short notes with steps you can follow, and sorts them into collections you can search and ask questions about.
 
-It runs on your PC. No account, no tracking, and it works offline with a free local AI. It never logs in to the platforms or changes anything there; it only reads the data export they give you.
+It runs on your PC with no Keptwise account or tracking. A free local AI can work offline once your saves are downloaded. Keptwise uses the exports and video pages to build your library, and leaves your platform accounts and saves as they are.
 
 ## Features
 
 - **Import** the data export from each platform (just drag the zip in). Importing again only adds new saves.
-- **Transcripts** of each public video, made on your PC with Whisper.
+- **Transcripts** made on your PC with Whisper. In **Sort**, retry videos with no detected speech, retry failed downloads, or recheck videos marked unavailable. Open a save to retry it on its own.
 - **Notes**: a summary, key details and next steps for every save.
-- **Collections**, sorted by the AI or by hand. Anything it isn't sure about waits in Needs review.
+- **Collections** organized by hand or with AI suggestions that you can review and approve.
 - **Plans**: tick off a recipe's or a trip's steps as you go.
 - **Search** by words or by idea, and **ask** questions that are answered only from your saves.
 - **Unsave**: a list of saves whose notes are kept, so you can clear them out of the original app.
@@ -27,7 +27,9 @@ On first start you pick your look and your AI:
 - **Free, on this PC** with [Ollama](https://ollama.com/download). The app downloads the model for you (`gemma4:12b`, about 8 GB, or `gemma4:e4b` for slower PCs).
 - **Cloud** with your own Claude, OpenAI, Gemini or OpenRouter key. The key is stored in Windows Credential Manager, and the app asks before any batch that costs money.
 
-The speech model for transcripts (466 MB) downloads the first time you use it.
+The speech model for transcripts (466 MB) downloads the first time you use it. Short clips get a second pass when the first pass detects no speech.
+
+If a video plays only when you're signed in, **Sort → TikTok access** can load a TikTok-only Netscape cookies.txt session from your signed-in browser. Keep the file private. Keptwise keeps the session in memory for TikTok requests until you disconnect or close the app. TikTok still decides which videos the account can see.
 
 ## Getting your saves
 

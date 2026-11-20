@@ -80,12 +80,12 @@ export function saveMenuItems(raw: LibraryItem | ItemCard, { onChange, from, ext
     { label: "Ask the AI Assistant about it", icon: icons.chat, onSelect: () => navigate(`/chat?items=${item.id}`) },
     { kind: "divider" },
     {
-      label: "Delete",
+      label: "Archive in Keptwise",
       icon: icons.trash,
       danger: true,
-      hint: "to the Archive",
+      hint: "Put it back from Archive",
       onSelect: () =>
-        void attempt(() => patch({ deleted: true }), "Deleted: it's in the Archive and on the Unsave list.", () => patch({ deleted: false })),
+        void attempt(() => patch({ deleted: true }), "Moved to the Keptwise Archive.", () => patch({ deleted: false })),
     },
   );
   return items;
@@ -110,7 +110,7 @@ export function selectionMenuItems(ids: number[], { onDone, onClear }: { onDone:
     },
     { label: "Make a plan with them", icon: icons.plans, onSelect: () => navigate(`/chat?tool=plan&items=${ids.slice(0, 30).join(",")}`) },
     { kind: "divider" },
-    { label: `Delete ${many}`, icon: icons.trash, danger: true, hint: "to the Archive", onSelect: () => void bulk("delete", `Deleted ${many}: they're in the Archive and on the Unsave list.`, "restore") },
+    { label: `Archive ${many}`, icon: icons.trash, danger: true, hint: "to the Archive", onSelect: () => void bulk("delete", `Moved ${many} to the Keptwise Archive.`, "restore") },
     { kind: "divider" },
     { label: "Clear the selection", icon: icons.close, hint: "Esc", onSelect: onClear },
   ];

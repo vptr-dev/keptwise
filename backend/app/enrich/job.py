@@ -1,7 +1,7 @@
 """The "enrich" background job: details, thumbnail, sound and transcript.
 
 For each item, in order:
-1. Read the public page (title, caption, author, length, thumbnail link).
+1. Read the video page (title, caption, author, length, thumbnail link).
 2. Keep a small copy of the thumbnail.
 3. Download the file with the video's sound into <data>\\audio\\.
 4. Turn the speech into text on this PC, save it, delete the sound file.
@@ -26,6 +26,7 @@ from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeout
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -34,10 +35,10 @@ from app.db.connection import Database
 from app.db.items_repo import get_item_row, get_transcript, save_transcript, update_item
 from app.db.settings_repo import SettingsRepo
 from app.enrich.errors import plain_reason
-from app.enrich.fetch import Fetcher, TooLong, VideoDetails, YtDlpFetcher, forbidden
+from app.enrich.fetch import Fetcher, OnlyMusic, TooLong, VideoDetails, YtDlpFetcher
 from app.enrich.priority import background_priority
 from app.enrich.speech_models import DEFAULT_MODEL, download_model, is_downloaded, model_folder
-from app.enrich.transcribe import NoSound, Transcriber
+from app.enrich.transcribe import NoSound, Transcript, Transcriber
 from app.importers.common import plural
 from app.jobs.runner import Handler, JobCancelled, JobContext
 from app.paths import AppPaths
@@ -75,7 +76,7 @@ class Prepared:
 
 
 def now_iso() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    return datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def leftover_media(audio_dir: Path, item_id: int) -> Path | None:
@@ -90,7 +91,7 @@ def prepare(fetcher: Fetcher, paths: AppPaths, item: dict[str, Any], need_media:
     result = Prepared(item)
     started = time.monotonic()
     try:
-        details, handle = fetcher.details(item["url"], item["platform"])
+        details, handle = fetcher.details(item["url"], item["platform"], item.get("author"))
     except Exception as error:  # noqa: BLE001 - saved on the item instead
         result.error = error
         result.details_s = time.monotonic() - started
@@ -155,6 +156,8 @@ class Enricher:
         model_downloader: Callable[..., Path],
     ) -> None:
         self.ctx = ctx
+        retry_since = ctx.params.get("retry_since")
+        self.retry_since = datetime.fromisoformat(retry_since) if retry_since else None
         self.db = db
         self.paths = paths
         self.fetcher = fetcher
@@ -175,8 +178,15 @@ class Enricher:
         with self.db.connect() as conn:
             for item_id in ids:
                 row = get_item_row(conn, item_id)
-                if row is not None and row["status"] not in DONE_STATUSES:
-                    todo.append(row)
+                if row is None or row["deleted_at"]:
+                    continue
+                if self.retry_since:
+                    last = row["enriched_at"]
+                    if last and datetime.fromisoformat(last) >= self.retry_since:
+                        continue
+                elif row["status"] in DONE_STATUSES or row["gone_at"]:
+                    continue
+                todo.append(row)
         done = total - len(todo)
         ctx.progress(done, total, "Getting ready…")
         if todo:
@@ -224,7 +234,8 @@ class Enricher:
 
     def _submit(self, executor: ThreadPoolExecutor, item: dict[str, Any]) -> Future[Prepared]:
         with self.db.connect() as conn:
-            need_media = get_transcript(conn, item["id"]) is None
+            transcript = get_transcript(conn, item["id"])
+        need_media = transcript is None or (bool(self.retry_since) and not transcript["text"])
         return executor.submit(prepare, self.fetcher, self.paths, item, need_media)
 
     def _wait_for(self, future: Future[Prepared]) -> Prepared:
@@ -242,35 +253,42 @@ class Enricher:
         if prepared.error is not None or prepared.details is None:
             reason = plain_reason(prepared.error or "No details")
             with self.db.connect() as conn:
-                if reason.is_network:
-                    update_item(conn, item_id, error=reason.text)  # stays waiting; try later
-                    return "later"
-                # Taken down on the platform: off to the Archive (Deleted TikToks).
-                update_item(conn, item_id, status="failed", error=reason.text,
-                            enriched_at=now_iso(), enrich_seconds=round(prepared.details_s, 2),
-                            gone_at=now_iso() if reason.kind == "gone" else None)
+                current = get_item_row(conn, item_id)
+                if current is not None and not current["deleted_at"]:
+                    if reason.is_network:
+                        update_item(conn, item_id, error=reason.text)
+                    else:
+                        status = current["status"] if current["status"] in DONE_STATUSES else "failed"
+                        update_item(
+                            conn, item_id, status=status, error=reason.text, enriched_at=now_iso(),
+                            enrich_seconds=round(prepared.details_s, 2),
+                            gone_at=now_iso() if reason.kind == "gone" else None,
+                        )
+            if reason.is_network:
+                return "later"
             self._time(item_id, "failed", prepared, 0.0)
             return "failed"
 
         self._save_details(item, prepared)
         note: str | None = None
         outcome = "transcribed"
+        result: Transcript | None = None
         started = time.monotonic()
         with self.db.connect() as conn:
-            has_transcript = get_transcript(conn, item_id) is not None
-        if has_transcript:
-            pass  # done in an earlier run
+            previous = get_transcript(conn, item_id)
+        if previous is not None and (previous["text"] or not self.retry_since):
+            outcome = "transcribed" if previous["text"] else "no_speech"
         elif prepared.media_path is not None:
-            outcome, note = self._transcribe(item_id, prepared.media_path)
+            outcome, note, result = self._transcribe(item_id, prepared.media_path)
         else:
             error = prepared.media_error
             if isinstance(error, TooLong):
                 note = str(error)
+            elif isinstance(error, OnlyMusic):
+                note = "Got the details, but TikTok only provided the separate music track."
             else:
-                reason = plain_reason(error or "No sound file")
-                if reason.is_network or forbidden(error):
-                    # Offline, or TikTok refused the file this time: not done.
-                    # The save stays waiting, so the next run tries again.
+                reason = plain_reason(error or "No media file")
+                if reason.is_network or reason.kind == "blocked":
                     with self.db.connect() as conn:
                         update_item(conn, item_id, error=f"Got the details, but not the sound. {reason.text}")
                     return "later" if reason.is_network else "refused"
@@ -280,8 +298,15 @@ class Enricher:
 
         seconds = prepared.details_s + prepared.sound_s + transcribe_s
         with self.db.connect() as conn:
-            update_item(conn, item_id, status="enriched", error=note, enriched_at=now_iso(),
-                        enrich_seconds=round(seconds, 2))
+            current = get_item_row(conn, item_id)
+            if current is not None and not current["deleted_at"]:
+                if result is not None and self.transcriber is not None:
+                    save_transcript(conn, item_id, result.text, result.language, self.transcriber.source)
+                status = "processed" if current["status"] == "processed" else "enriched"
+                update_item(conn, item_id, status=status, error=note, enriched_at=now_iso(),
+                            enrich_seconds=round(seconds, 2), gone_at=None)
+        if prepared.media_path is not None:
+            prepared.media_path.unlink(missing_ok=True)
         self._time(item_id, outcome, prepared, transcribe_s)
         return outcome
 
@@ -289,10 +314,10 @@ class Enricher:
         details = prepared.details
         assert details is not None
         fields: dict[str, Any] = {
-            "title": details.title,
-            "description": details.description,
-            "duration_s": details.duration_s,
-            "posted_at": details.posted_at,
+            "title": details.title or item.get("title"),
+            "description": details.description or item.get("description"),
+            "duration_s": details.duration_s or item.get("duration_s"),
+            "posted_at": details.posted_at or item.get("posted_at"),
             "thumbnail_url": details.thumbnail_url or item.get("thumbnail_url"),
             # The export's author (if any) wins: it's what the user saw.
             "author": item.get("author") or details.author,
@@ -303,31 +328,20 @@ class Enricher:
         with self.db.connect() as conn:
             update_item(conn, int(item["id"]), **fields)
 
-    def _transcribe(self, item_id: int, media: Path) -> tuple[str, str | None]:
+    def _transcribe(self, item_id: int, media: Path) -> tuple[str, str | None, Transcript | None]:
         if self.transcriber is None:
             folder = model_folder(self.paths.models, self.model_id)
             self.transcriber = self.transcriber_factory(folder, self.model_id, self.device)
-        capture_frames(media, self.paths.thumbnails, item_id)  # pictures for the AI to look at
+        capture_frames(media, self.paths.thumbnails, item_id)
         try:
             result = self.transcriber.transcribe(media, check=self.ctx.check)
         except JobCancelled:
-            raise  # keep the sound file; Resume carries on from here
+            raise  # keep the media file; Resume carries on from here
         except NoSound:
-            self._save_transcript(item_id, "", None)
-            media.unlink(missing_ok=True)
-            return "no_speech", "This video has no sound."
-        except Exception as error:  # noqa: BLE001 - details are still kept
-            return "details_only", f"Got the details, but couldn't turn the speech into text ({error})."
-        self._save_transcript(item_id, result.text, result.language)
-        media.unlink(missing_ok=True)  # the transcript is all we need
-        if result.no_speech:
-            return "no_speech", None
-        return "transcribed", None
-
-    def _save_transcript(self, item_id: int, text: str, language: str | None) -> None:
-        assert self.transcriber is not None
-        with self.db.connect() as conn:
-            save_transcript(conn, item_id, text, language, self.transcriber.source)
+            return "no_speech", "The downloaded file had no usable audio track.", Transcript("", None, True)
+        except Exception:  # noqa: BLE001 - details and earlier transcripts are still kept
+            return "details_only", "Got the details, but the speech model couldn't read the audio.", None
+        return ("no_speech" if result.no_speech else "transcribed"), None, result
 
     def _time(self, item_id: int, outcome: str, prepared: Prepared, transcribe_s: float) -> None:
         if len(self.timings) >= TIMINGS_KEPT:

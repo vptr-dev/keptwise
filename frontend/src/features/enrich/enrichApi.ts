@@ -6,9 +6,9 @@ export type EnrichCounts = {
   total: number;
   waiting: number;
   done: number;
-  failed: number; // couldn't be read (not counting the ones taken down)
-  no_speech: number; // read fine, but the video has no sound or speech
-  gone?: number; // taken down on the platform: in the Archive's Deleted TikToks
+  failed: number; // page, media or audio couldn't be read
+  no_speech: number; // the speech model returned an empty transcript
+  gone?: number; // unavailable on the platform
   failed_reasons?: { text: string; count: number }[];
 };
 
@@ -26,7 +26,8 @@ export type SpeechSettings = {
   models: SpeechModel[];
 };
 
-export type EnrichOverview = { counts: EnrichCounts; speech: SpeechSettings };
+export type EnrichOverview = { counts: EnrichCounts; speech: SpeechSettings; tiktok_session?: boolean };
+export type EnrichTarget = "waiting" | "failed" | "no_speech" | "unavailable";
 
 export type RecentVideo = {
   id: number;
@@ -60,8 +61,11 @@ export type EnrichResult = {
 export const enrichApi = {
   overview: () => api.get<EnrichOverview>("/api/enrich"),
   recent: (limit = 12) => api.get<RecentVideo[]>(`/api/enrich/recent?limit=${limit}`),
-  start: (count: number | null, which: "waiting" | "failed" = "waiting") =>
-    api.post<Job>("/api/enrich/start", { count, which }),
+  start: (count: number | null, which: EnrichTarget = "waiting", itemId?: number) =>
+    api.post<Job>("/api/enrich/start", { count, which, item_id: itemId }),
+  connectTikTok: (file: File) =>
+    api.put<{ connected: boolean }>("/api/enrich/tiktok-session", file.slice(0, file.size, "application/octet-stream")),
+  disconnectTikTok: () => api.del<{ connected: boolean }>("/api/enrich/tiktok-session"),
   saveSettings: (changes: Partial<Pick<SpeechSettings, "model" | "device">>) =>
     api.put<SpeechSettings>("/api/enrich/settings", changes),
 };

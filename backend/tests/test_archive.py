@@ -36,8 +36,10 @@ def test_a_deleted_save_moves_to_the_archive_and_comes_back(api: TestClient, svc
     assert library_ids(api) == [two]
     assert library_ids(api, "&archive=deleted") == [one]
     assert api.get("/api/archive").json() == {"deleted": 1, "unsaved": 0, "gone": 0}
-    assert card["safe_to_unsave"] is True  # you don't want it: it goes on the Unsave list
-    assert [item["id"] for item in api.get("/api/unsave").json()["items"]] == [one]
+    assert card["safe_to_unsave"] is True
+    assert card["unsaved"] is False and card["unsaved_at"] is None
+    checklist = api.get("/api/unsave").json()
+    assert checklist["left"] == 1 and [item["id"] for item in checklist["items"]] == [one]
     # It no longer counts anywhere: collections, tags, the platform picker, the sidebar.
     listed = {c["name"]: c["count"] for c in api.get("/api/collections").json()["collections"]}
     assert listed["Meals"] == 0

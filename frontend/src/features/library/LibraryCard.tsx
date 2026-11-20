@@ -15,7 +15,7 @@ import { saveMenuItems } from "./saveMenu";
 import Thumb from "./Thumb";
 
 function statusLine(item: LibraryItem): string | null {
-  if (item.gone) return "Taken down";
+  if (item.gone) return "Unavailable";
   if (item.status === "failed") return "Couldn't read this one";
   if (item.status === "imported") return "Not transcribed yet";
   if (item.status === "enriched") return "Needs notes";

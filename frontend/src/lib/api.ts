@@ -13,7 +13,7 @@ export class ApiError extends Error {
 
 async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const init: RequestInit = { method };
-  if (body instanceof FormData) {
+  if (body instanceof FormData || body instanceof Blob) {
     init.body = body;
   } else if (body !== undefined) {
     init.body = JSON.stringify(body);

@@ -178,19 +178,19 @@ export default function BulkBar({
         size="sm"
         variant="danger"
         disabled={busy || ids.length === 0}
-        title="They move to the Archive, where you can put them back"
+        title="Move these saves to the Keptwise Archive"
         onClick={() => {
           const gone = ids;
-          void run({ action: "delete" }, "Deleted").then((ok) => {
+          void run({ action: "delete" }, "Archived").then((ok) => {
             if (!ok) return;
-            toast(`Deleted ${gone.length} save${gone.length === 1 ? "" : "s"}. ${gone.length === 1 ? "It's" : "They're"} in the Archive.`, {
+            toast(`Archived ${gone.length} save${gone.length === 1 ? "" : "s"}. ${gone.length === 1 ? "It's" : "They're"} in the Archive.`, {
               undo: () => organizeApi.bulk({ item_ids: gone, action: "restore" }).then(() => { announceChange(); onDone(); }),
             });
             onClear();
           });
         }}
       >
-        Delete
+        Archive
       </Button>
       <Button size="sm" variant="secondary" className="ml-auto" onClick={onClear}>
         Done selecting

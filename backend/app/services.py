@@ -24,7 +24,9 @@ from app.ai.sorting.settings import load as load_sorting
 from app.db.connection import Database
 from app.db.undo import UndoHistory
 from app.db.settings_repo import SettingsRepo
+from app.enrich.fetch import YtDlpFetcher
 from app.enrich.job import make_enrich_handler
+from app.enrich.tiktok_session import TikTokSession
 from app.importers.job import make_import_handler, remove_old_uploads
 from app.jobs.demo import run_demo_job
 from app.jobs.events import EventHub
@@ -48,6 +50,7 @@ class AppServices:
     ai: AIService
     search: SearchService
     updates: UpdateChecker
+    tiktok_session: TikTokSession
     # Extra services added by later parts of the app.
     extras: dict[str, Any] = field(default_factory=dict)
 
@@ -109,7 +112,9 @@ def build_services(
     runner.register("demo", run_demo_job)
     runner.register("ollama_pull", make_pull_handler(http))
     runner.register("import", make_import_handler(db, paths.imports))
-    runner.register("enrich", notes_after(search.after(make_enrich_handler(db, paths, settings)), db, settings, ai, runner, jobs))
+    tiktok_session = TikTokSession()
+    enrich = make_enrich_handler(db, paths, settings, fetcher_factory=lambda: YtDlpFetcher(session=tiktok_session))
+    runner.register("enrich", notes_after(search.after(enrich), db, settings, ai, runner, jobs))
     runner.register("notes", search.after(make_notes_handler(db, settings, ai)))
     runner.register("sort", make_sort_handler(db, settings, ai))
     runner.register("tags", make_tags_handler(db, settings, ai))
@@ -128,6 +133,7 @@ def build_services(
         ai=ai,
         search=search,
         updates=UpdateChecker(settings, http),
+        tiktok_session=tiktok_session,
         extras=extras,
     )
 

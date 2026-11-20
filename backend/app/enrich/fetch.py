@@ -1,24 +1,9 @@
-"""Get a video's public details and its sound, using yt-dlp.
-
-The app only reads public pages: it never signs in and never sends
-cookies, so private videos simply fail with a clear reason.
-
-Checked on real TikTok saves (Nov 2026):
-- The share links from TikTok's export work as they are.
-- TikTok's "audio" format is the background song, not the video's own
-  sound, so for TikTok we take the smallest file that has both picture and
-  sound, and only use "audio" when there's nothing else (photo slideshows).
-- Thumbnail links expire after a while, so a small copy is kept locally.
-- About a third of TikTok page reads give file links that all answer 403;
-  a fresh read usually works (DOWNLOAD_TRIES, with a short pause).
-- TikTok refuses the page itself to OpenSSL 3.0's TLS 1.3 handshake (the
-  python.org 3.12 builds). The app is built on a Python with OpenSSL 3.5
-  (packaging/build.ps1 checks).
-"""
+"""Read video details and download media for local transcription using yt-dlp."""
 
 from __future__ import annotations
 
 import io
+import re
 import shutil
 import sys
 import time
@@ -27,6 +12,11 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
+from urllib.parse import urlsplit
+
+from app.enrich.errors import plain_reason
+from app.enrich.tiktok_session import TikTokSession, tiktok_host
+from app.importers.urls import canonical_tiktok
 
 # Longest video the app transcribes (longer ones get details only).
 MAX_MINUTES = 90
@@ -49,6 +39,7 @@ class _Page:
     options: dict[str, Any]
     info: dict[str, Any]
     cookies: list[Any]
+    signed_in: bool = False
 
 
 def forbidden(error: object) -> bool:
@@ -71,8 +62,8 @@ class VideoDetails:
 class Fetcher(Protocol):
     """What the enrichment job needs. Tests use a fake one."""
 
-    def details(self, url: str, platform: str) -> tuple[VideoDetails, Any]:
-        """Read the public page. The second value is passed to download_media."""
+    def details(self, url: str, platform: str, author: str | None = None) -> tuple[VideoDetails, Any]:
+        """Read the video page. The second value is passed to download_media."""
         ...
 
     def download_media(self, handle: Any, folder: Path, stem: str) -> Path:
@@ -101,8 +92,10 @@ class _QuietLogger:
 
 def _format_for(platform: str) -> dict[str, Any]:
     if platform == "tiktok":
-        # Smallest file with the video's own sound; the song only as a last resort.
-        return {"format": "best[acodec!=none][vcodec!=none]/bestaudio", "format_sort": ["+size", "+br"]}
+        # Try the video's own soundtrack even when the extractor can't label its codec.
+        # Keep details even if TikTok only offers the separate music asset.
+        return {"format": "best[acodec!=none][vcodec!=none]/best*[format_id!=audio][vcodec!=?none]/bestaudio",
+                "format_sort": ["+size", "+br"]}
     # YouTube, Instagram and Facebook have sound-only files of the video itself.
     return {"format": "bestaudio/best[acodec!=none]", "format_sort": ["+size", "+br"]}
 
@@ -149,8 +142,36 @@ def bundled_ffmpeg(base: Path | None = None, frozen: bool | None = None) -> str 
     return str(path) if path.is_file() else None
 
 
+def tiktok_video_urls(url: str, author: str | None) -> tuple[str, ...]:
+    canonical = canonical_tiktok(url)
+    if not canonical:
+        return (url,)
+    _, video_id = canonical
+    handle = (author or "").lstrip("@")
+    fallback = f"https://www.tiktok.com/@_/video/{video_id}"
+    if not re.fullmatch(r"[A-Za-z0-9_.]+", handle):
+        original = re.fullmatch(r"/@([A-Za-z0-9_.]+)/video/\d+/?", urlsplit(url).path)
+        handle = original[1] if original else "_"
+    direct = f"https://www.tiktok.com/@{handle}/video/{video_id}"
+    return tuple(dict.fromkeys((direct, fallback)))
+
+
+def _scope_tiktok_jar(jar: Any) -> None:
+    # The extractor can copy TikTok cookies to hosts listed in media URLs.
+    # Apply this check at insertion so all yt-dlp HTTP backends see the same jar.
+    set_cookie = jar.set_cookie
+
+    def set_tiktok_cookie(cookie: Any) -> None:
+        if tiktok_host(cookie.domain):
+            cookie.secure = True
+            set_cookie(cookie)
+
+    jar.set_cookie = set_tiktok_cookie
+
+
 class YtDlpFetcher:
-    def __init__(self, ffmpeg_location: str | None = None) -> None:
+    def __init__(self, ffmpeg_location: str | None = None, session: TikTokSession | None = None) -> None:
+        self._session = session
         self._ffmpeg = ffmpeg_location or bundled_ffmpeg() or shutil.which("ffmpeg")
 
     def _options(self, **extra: Any) -> dict[str, Any]:
@@ -174,19 +195,41 @@ class YtDlpFetcher:
     def _read(self, url: str, options: dict[str, Any]) -> _Page:
         import yt_dlp  # imported here: it's big and only needed for this
 
-        with yt_dlp.YoutubeDL(options) as ydl:
+        params = dict(options)
+        use_session = params.pop("keptwise_tiktok", False)
+        parts = urlsplit(url)
+        session_cookies = (
+            self._session.cookies()
+            if use_session and self._session and parts.scheme == "https" and tiktok_host(parts.hostname or "")
+            else ()
+        )
+        with yt_dlp.YoutubeDL(params) as ydl:
+            if session_cookies:
+                _scope_tiktok_jar(ydl.cookiejar)
+                for cookie in session_cookies:
+                    ydl.cookiejar.set_cookie(cookie)
             info = ydl.extract_info(url, download=False)
-            cookies = list(ydl.cookiejar)  # carried over to the download, like one yt-dlp run
+            cookies = list(ydl.cookiejar)
         if not isinstance(info, dict):
             raise RuntimeError("No media found")
-        return _Page(url, options, info, cookies)
+        return _Page(url, options, info, cookies, signed_in=bool(session_cookies))
 
-    def details(self, url: str, platform: str) -> tuple[VideoDetails, Any]:
-        page = self._read(url, self._options(**_format_for(platform)))
+    def details(self, url: str, platform: str, author: str | None = None) -> tuple[VideoDetails, Any]:
+        urls = tiktok_video_urls(url, author) if platform == "tiktok" else (url,)
+        options = self._options(keptwise_tiktok=platform == "tiktok", **_format_for(platform))
+        try:
+            page = self._read(urls[0], options)
+        except Exception as error:
+            reason = plain_reason(error)
+            if len(urls) == 1 or reason.kind not in {"private", "login", "blocked", "gone", "no_media", "unavailable"}:
+                raise
+            page = self._read(urls[1], options)
         return details_from_info(page.info), page
 
     def download_media(self, handle: Any, folder: Path, stem: str) -> Path:
         page: _Page = handle
+        if page.options.get("keptwise_tiktok") and page.info.get("format_id") == "audio":
+            raise OnlyMusic()
         duration = page.info.get("duration")
         if isinstance(duration, (int, float)) and duration > MAX_MINUTES * 60:
             raise TooLong(f"This video is longer than {MAX_MINUTES} minutes, so it isn't transcribed.")
@@ -205,8 +248,13 @@ class YtDlpFetcher:
         import yt_dlp
 
         options = dict(page.options, outtmpl=str(folder / f"{stem}.%(ext)s"))
+        options.pop("keptwise_tiktok", None)
         with yt_dlp.YoutubeDL(options) as ydl:
-            for cookie in page.cookies:
+            if page.signed_in:
+                _scope_tiktok_jar(ydl.cookiejar)
+            # A prefetched page can reach the downloader after a disconnect.
+            cookies = page.cookies if not page.signed_in or (self._session and self._session.cookies()) else []
+            for cookie in cookies:
                 ydl.cookiejar.set_cookie(cookie)
             done = ydl.process_ie_result(dict(page.info), download=True)
         downloads = (done or {}).get("requested_downloads") or []
@@ -224,6 +272,10 @@ class YtDlpFetcher:
         with urllib.request.urlopen(request, timeout=20) as response:
             data = response.read(10 * 1024 * 1024)
         return save_thumbnail(data, path)
+
+
+class OnlyMusic(Exception):
+    """TikTok only provided the post's separate music asset."""
 
 
 class TooLong(Exception):

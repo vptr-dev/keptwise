@@ -28,8 +28,10 @@ from app.jobs.runner import JobCancelled
     [
         ("ERROR: [TikTok] 7300000000000000001: This video is private", "private"),
         ("ERROR: [youtube] abc: Private video. Sign in if you've been granted access", "private"),
-        ("ERROR: [TikTok] 7000000000000000001: Your IP address is blocked from accessing this post", "gone"),
-        ("ERROR: [TikTok] 1: Video not available, status code 10204", "gone"),
+        ("ERROR: [TikTok] 7000000000000000001: Your IP address is blocked from accessing this post", "blocked"),
+        ("ERROR: [TikTok] 1: Video not available, status code 10204", "blocked"),
+        ("ERROR: [TikTok] 2: You do not have permission to view this post. Log into an account that has access", "private"),
+        ("ERROR: [TikTok] 2: HTTP Error 404", "unavailable"),
         ("ERROR: [youtube] abc: Video unavailable. This video has been removed by the uploader", "gone"),
         ("ERROR: [Instagram] C1: Requested content is not available, rate-limit reached or login required", "login"),
         ("ERROR: [youtube] abc: Sign in to confirm your age", "login"),
@@ -435,3 +437,36 @@ def test_tiktok_403_reads_the_page_again_for_fresh_links(tmp_path: Path, monkeyp
     with pytest.raises(RuntimeError, match="404"):
         other.download_media(page, tmp_path, "3")
     assert other.reads == 1  # only 403 is retried
+
+
+def test_speech_missed_by_the_voice_filter_gets_a_second_pass(tmp_path: Path) -> None:
+    class QuietSpeech:
+        def transcribe(self, audio: Any, *, vad_filter: bool, **options: Any) -> tuple[list[Segment], Info]:
+            return ([] if vad_filter else [Segment("Turn the heat down.")]), Info()
+
+    transcriber = Transcriber(tmp_path, "small", device="cpu", factory=lambda *args: QuietSpeech())
+    result = transcriber.transcribe(write_wav(tmp_path / "quiet.wav"))
+    assert result.text == "Turn the heat down." and not result.no_speech
+
+
+def test_tiktok_lookup_tries_the_creator_link_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.enrich.fetch import YtDlpFetcher, _Page
+
+    urls: list[str] = []
+
+    def read(url: str, options: dict) -> _Page:
+        urls.append(url)
+        if len(urls) == 1:
+            raise RuntimeError("Video not available, status code 10204")
+        return _Page(url, options, {"uploader": "actual.creator"}, [])
+
+    fetcher = YtDlpFetcher()
+    monkeypatch.setattr(fetcher, "_read", read)
+    details, _ = fetcher.details(
+        "https://www.tiktokv.com/share/video/7000000000000000001/", "tiktok", "@old.creator",
+    )
+    assert details.author == "actual.creator"
+    assert urls == [
+        "https://www.tiktok.com/@old.creator/video/7000000000000000001",
+        "https://www.tiktok.com/@_/video/7000000000000000001",
+    ]

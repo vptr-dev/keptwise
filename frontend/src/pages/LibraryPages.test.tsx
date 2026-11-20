@@ -88,7 +88,7 @@ test("the item page ticks steps with a click or a number key; no Mark as done or
   expect(screen.queryByRole("button", { name: /Safe to unsave/ })).not.toBeInTheDocument();
 });
 
-test("a save the AI hasn't written notes for says Needs notes; one with no sound says so", async () => {
+test("a save the AI hasn't written notes for says Needs notes; one without detected speech says so", async () => {
   fakeBackend({
     "GET /api/items/7": {
       item: libraryItem({ id: 7, status: "enriched", title: "a caption", summary: null, steps: [], steps_checked: [], facts: [] }),
@@ -101,7 +101,7 @@ test("a save the AI hasn't written notes for says Needs notes; one with no sound
   expect(screen.getByRole("link", { name: "write its notes on the Sort page" })).toHaveAttribute("href", "#/transcripts");
   unmount();
   render(<ItemPage itemId={8} />);
-  expect(await screen.findByText("No sound")).toBeInTheDocument();
+  expect(await screen.findByText("No speech detected")).toBeInTheDocument();
   expect(screen.queryByText("Needs notes")).not.toBeInTheDocument();
 });
 
@@ -350,9 +350,9 @@ test("right-click a save: delete it and undo, or find-or-make a collection for i
   const menu = await screen.findByRole("menu", { name: "Easy tomato pasta" });
   expect(within(menu).getByRole("menuitem", { name: /^Select/ })).toBeInTheDocument();
   expect(within(menu).queryByRole("menuitem", { name: /Mark as done/ })).not.toBeInTheDocument();
-  fireEvent.click(within(menu).getByRole("menuitem", { name: /^Delete/ }));
+  fireEvent.click(within(menu).getByRole("menuitem", { name: /^Archive in Keptwise/ }));
   await vi.waitFor(() => expect(calls.find((c) => c.method === "PATCH")?.body).toEqual({ deleted: true }));
-  expect(await screen.findByText("Deleted: it's in the Archive and on the Unsave list.")).toBeInTheDocument();
+  expect(await screen.findByText("Moved to the Keptwise Archive.")).toBeInTheDocument();
   expect(within(menu).queryByRole("menuitem", { name: /unsaved it|Unsave list|Sort it|Suggest tags/ })).not.toBeInTheDocument();
   expect(window.location.hash).toBe("#/library"); // the save wasn't opened
   fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
@@ -398,7 +398,7 @@ test("pick several saves with the boxes; right-click them to ask the AI, or dele
   expect(window.location.hash).toBe("#/chat?items=1,2,3");
 
   window.location.hash = "#/library";
-  fireEvent.click(within(bar).getByRole("button", { name: "Delete" }));
+  fireEvent.click(within(bar).getByRole("button", { name: "Archive" }));
   await vi.waitFor(() => expect(calls.find((c) => c.url === "/api/items/bulk")?.body).toEqual({ action: "delete", item_ids: [1, 2, 3] }));
   fireEvent.click(await screen.findByRole("button", { name: "Undo" }));
   await vi.waitFor(() => expect(calls.filter((c) => c.url === "/api/items/bulk")[1]?.body).toEqual({ item_ids: [1, 2, 3], action: "restore" }));
@@ -414,7 +414,7 @@ test("the Archive: put a deleted save back, or delete it for good after asking",
   render(<ArchivePage />);
   expect(await screen.findByText("Old recipe")).toBeInTheDocument();
   expect(calls.find((c) => c.url.startsWith("/api/library/items"))?.url).toContain("archive=deleted");
-  expect(screen.getByRole("tab", { name: /Unsaved/ })).toHaveTextContent("4");
+  expect(screen.getByRole("tab", { name: /Marked unsaved/ })).toHaveTextContent("4");
 
   fireEvent.contextMenu(screen.getByTestId("library-5"), { clientX: 10, clientY: 10 });
   fireEvent.click(within(await screen.findByRole("menu")).getByRole("menuitem", { name: "Put back in the Library" }));

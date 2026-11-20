@@ -4,8 +4,8 @@ Lessons from real saves (Nov 2026):
 - faster-whisper 1.2.1 can't open files with PyAV 19 by itself, so we turn
   the sound into numbers ourselves (decode_audio) and hand those over.
 - Videos with only music make Whisper invent lyrics or symbols, slowly.
-  Whisper's own "which language is this?" confidence is low for those, so
-  below MIN_LANGUAGE_CONFIDENCE the video counts as "no speech".
+  The second pass and low-confidence languages need stronger evidence
+  from each sentence before their text is kept.
 - Using the graphics card needs NVIDIA's cuBLAS files (ctranslate2 brings
   cuDNN itself). They come from the optional backend/requirements-gpu.txt,
   inside the venv, so Windows has to be told where they are
@@ -31,6 +31,7 @@ MIN_LANGUAGE_CONFIDENCE = 0.5
 MAX_COMPRESSION_RATIO = 2.4
 NO_SPEECH_PROB = 0.6
 LOW_LOG_PROB = -1.0
+SECOND_PASS_SECONDS = 180
 GPU_BATCH_SIZE = 8  # pieces of a video the graphics card works on at once
 
 
@@ -66,13 +67,17 @@ def decode_audio(path: Path) -> Any:
     return np.concatenate(chunks).astype(np.float32) / 32768.0
 
 
-def keep_segments(segments: Iterable[Any], check: Callable[[], None] | None = None) -> str:
+def keep_segments(
+    segments: Iterable[Any], check: Callable[[], None] | None = None, *, strict: bool = False,
+) -> str:
     """Join the lines Whisper heard, leaving out the ones it probably made up."""
     lines: list[str] = []
     for segment in segments:
         if check:
             check()
         if segment.no_speech_prob > NO_SPEECH_PROB and segment.avg_logprob < LOW_LOG_PROB:
+            continue
+        if strict and (segment.no_speech_prob > 0.45 or segment.avg_logprob < LOW_LOG_PROB):
             continue
         if segment.compression_ratio > MAX_COMPRESSION_RATIO:
             continue  # the same words over and over
@@ -180,6 +185,7 @@ class Transcriber:
         self._cuda_devices = cuda_devices
         self._batcher = batcher
         self._model: Any = None
+        self._unbatched: Any = None
         self.device_used: str | None = None
 
     @property
@@ -200,6 +206,7 @@ class Transcriber:
                 segments, _ = model.transcribe(np.zeros(SAMPLE_RATE, dtype=np.float32), language="en")
                 list(segments)
                 self._model, self.device_used = self._batcher(model), "gpu"
+                self._unbatched = model
                 return self._model
             except Exception:  # noqa: BLE001 - fall back to the processor
                 _gpu_failed = True
@@ -218,15 +225,39 @@ class Transcriber:
         }
         if self.device_used == "gpu":
             options["batch_size"] = GPU_BATCH_SIZE
+        try:
+            first = self._listen(model, audio, options, check)
+        except RuntimeError as error:
+            if "No clip timestamps found" not in str(error):
+                raise
+            first = Transcript("", None, no_speech=True)
+        if not first.no_speech or len(audio) > SAMPLE_RATE * SECOND_PASS_SECONDS:
+            return first
+        if check:
+            check()
+        # Whisper's voice filter can skip quiet dialogue or dialogue over music.
+        # A second pass on short clips checks the original audio with stricter
+        # segment confidence to keep music from turning into invented words.
+        options.pop("batch_size", None)
+        options["vad_filter"] = False
+        return self._listen(self._unbatched or model, audio, options, check, strict=True)
+
+    def _listen(
+        self, model: Any, audio: Any, options: dict[str, Any],
+        check: Callable[[], None] | None, *, strict: bool = False,
+    ) -> Transcript:
         segments, info = model.transcribe(audio, **options)
         language = getattr(info, "language", None)
         confidence = float(getattr(info, "language_probability", 1.0) or 0.0)
-        if confidence < MIN_LANGUAGE_CONFIDENCE:
-            return Transcript("", None, no_speech=True)
-        text = keep_segments(segments, check)
+        # Language confidence is often low for short speech. Let reliable
+        # segments establish that speech exists, without guessing a language.
+        text = keep_segments(segments, check, strict=strict or confidence < MIN_LANGUAGE_CONFIDENCE)
         if not _has_words(text):
             return Transcript("", None, no_speech=True)
+        if confidence < MIN_LANGUAGE_CONFIDENCE:
+            language = None
         return Transcript(text, language, no_speech=False)
 
     def close(self) -> None:
         self._model = None
+        self._unbatched = None

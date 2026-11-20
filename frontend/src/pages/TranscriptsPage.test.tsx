@@ -93,7 +93,7 @@ test("recent videos show the transcript, no speech, or why it failed", async () 
   expect(screen.getByText(/Boil the water first, then add salt/)).toBeInTheDocument();
   expect(screen.getByText("took 9.8 s")).toBeInTheDocument();
   expect(screen.getByText("TikTok · @pasta.chef · 0:46")).toBeInTheDocument();
-  expect(screen.getByText("No speech in this video (probably just music).")).toBeInTheDocument();
+  expect(screen.getByText("The speech model didn't detect any words.")).toBeInTheDocument();
   expect(screen.getByText(/This video is private/)).toBeInTheDocument();
   expect(screen.getAllByText("Couldn't read")).toHaveLength(2); // the count and the badge
   expect(screen.getByRole("button", { name: "Try the 1 failed again" })).toBeInTheDocument();
@@ -253,4 +253,19 @@ test("clear what the AI did: each asks first, and the user's own work stays", as
   fireEvent.click(await screen.findByRole("button", { name: "Clear" }));
   await waitFor(() => expect(calls.find((c) => c.url === "/api/sorting/clear")?.body).toEqual({ what: "ai_tags" }));
   expect(screen.getByRole("button", { name: "Undo its placements (4)" })).toBeInTheDocument();
+});
+
+
+test("unavailable saves can be rechecked even when all imported saves were marked unavailable", async () => {
+  vi.stubGlobal("EventSource", FakeEventSource);
+  const calls = fakeBackend({
+    "GET /api/enrich/recent": [],
+    "GET /api/enrich": overview({ total: 0, waiting: 0, gone: 434 }),
+    "GET /api/jobs": [],
+    "POST /api/enrich/start": enrichJob({ title: "Retry 434 videos", total: 434 }),
+  });
+  render(<TranscriptsPage />);
+  fireEvent.click(await screen.findByRole("button", { name: "Recheck 434 unavailable" }));
+  await waitFor(() => expect(calls.find((call) => call.url === "/api/enrich/start")?.body)
+    .toEqual({ count: null, which: "unavailable" }));
 });
