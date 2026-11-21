@@ -609,6 +609,9 @@ MIGRATIONS.append(
 MIGRATIONS.append("ALTER TABLE jobs ADD COLUMN notice_dismissed INTEGER NOT NULL DEFAULT 0;")
 
 
+MIGRATIONS.append("ALTER TABLE items ADD COLUMN unsave_hidden INTEGER NOT NULL DEFAULT 0;")
+
+
 def schema_version(conn: sqlite3.Connection) -> int:
     return int(conn.execute("PRAGMA user_version").fetchone()[0])
 

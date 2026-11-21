@@ -19,6 +19,8 @@ import { plansApi, type PlanSummary } from "../features/plans/plansApi";
 import ItemPanel from "../features/search/ItemPanel";
 import ResultCard from "../features/search/ResultCard";
 import { sortingApi, type Collection } from "../features/sorting/sortingApi";
+import { announceUndo, undoApi } from "../features/undo/UndoButtons";
+import { toast } from "../components/Toasts";
 import { errorCode, errorText } from "../lib/api";
 import { navigate, useRoute } from "../lib/router";
 
@@ -388,7 +390,7 @@ export default function AssistantPage({ chatId }: { chatId: number | null }) {
                     className="min-w-0 flex-1 bg-transparent py-2 text-[15px] outline-none placeholder:text-zinc-400"
                     value={text}
                     onChange={(event) => setText(event.target.value)}
-                    placeholder="Find a video or ask about your saves…"
+                    data-tour="assistant" placeholder="Find a video or ask about your saves…"
                     aria-label="Ask anything"
                     autoFocus
                     maxLength={4000}
@@ -592,7 +594,7 @@ function Answer({
       >
         <AnswerText text={message.content} byNumber={byNumber} onOpen={onOpen} />
       </div>
-      {message.actions && (message.actions.state !== "done" || message.actions.changed.length > 0) &&
+      {message.actions && (message.actions.state === "waiting" || message.actions.state === "cancelled" || message.actions.changed.length > 0) &&
         <ActionsDone actions={message.actions} onConfirm={onConfirm} />}
       {message.found && message.sources.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
@@ -642,6 +644,20 @@ function Answer({
 
 /** What the AI did in the app, or the big steps it's waiting to do. */
 function ActionsDone({ actions, onConfirm }: { actions: ChatActions; onConfirm?: (go: boolean) => void }) {
+  const [undoing, setUndoing] = useState(false);
+  async function undoChange() {
+    if (!actions.undo_id) return;
+    setUndoing(true);
+    try {
+      await undoApi.undo(actions.undo_id);
+      toast("Assistant changes undone.");
+      announceUndo();
+    } catch (e) {
+      toast(errorText(e), { tone: "error" });
+    } finally {
+      setUndoing(false);
+    }
+  }
   if (actions.state === "waiting")
     return (
       <div className="kw-glass max-w-[90%] rounded-2xl border p-4 text-sm" role="group" aria-label="Waiting for your OK">
@@ -665,15 +681,18 @@ function ActionsDone({ actions, onConfirm }: { actions: ChatActions; onConfirm?:
   if (actions.state === "cancelled") return <p className="text-xs text-zinc-500 dark:text-zinc-400">Cancelled. Nothing was changed.</p>;
   if (actions.changed.length === 0) return null;
   return (
-    <details className="max-w-[90%] text-xs text-zinc-500 dark:text-zinc-400">
+    <details open={!!actions.undo_id || undefined} className="max-w-[90%] text-xs text-zinc-500 dark:text-zinc-400">
       <summary className="cursor-pointer select-none">
-        Changed {actions.changed.length} thing{actions.changed.length === 1 ? "" : "s"} (undo with the arrow at the top right, or ask me)
+        Changed {actions.changed.length} thing{actions.changed.length === 1 ? "" : "s"}
       </summary>
       <ul className="mt-1.5 list-disc space-y-0.5 pl-5">
         {actions.changed.map((line, index) => (
           <li key={index}>{line}</li>
         ))}
       </ul>
+      {actions.undo_id && <Button size="sm" variant="secondary" className="mt-2" disabled={undoing} onClick={() => void undoChange()}>
+        Undo changes
+      </Button>}
     </details>
   );
 }

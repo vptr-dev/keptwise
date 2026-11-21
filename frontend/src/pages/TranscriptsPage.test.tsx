@@ -100,6 +100,7 @@ test("recent videos show the transcript, no speech, or why it failed", async () 
   expect(screen.getByText("The speech model didn't detect any words.")).toBeInTheDocument();
   expect(screen.getByText(/This video is private/)).toBeInTheDocument();
   expect(screen.getAllByText("Couldn't read")).toHaveLength(2); // the count and the badge
+  fireEvent.click(screen.getByText("Retry and recheck"));
   expect(screen.getByRole("button", { name: "Try the 1 failed again" })).toBeInTheDocument();
 });
 
@@ -269,6 +270,7 @@ test("unavailable saves can be rechecked even when all imported saves were marke
     "POST /api/enrich/start": enrichJob({ title: "Retry 434 videos", total: 434 }),
   });
   render(<TranscriptsPage />);
+  fireEvent.click(await screen.findByText("Retry and recheck"));
   fireEvent.click(await screen.findByRole("button", { name: "Recheck 434 unavailable" }));
   await waitFor(() => expect(calls.find((call) => call.url === "/api/enrich/start")?.body)
     .toEqual({ count: null, which: "unavailable" }));

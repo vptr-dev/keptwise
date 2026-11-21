@@ -14,8 +14,8 @@ It runs on your PC with no Keptwise account or tracking. A free local AI can wor
 - **Collections** organized by hand or with AI suggestions that you can review and approve.
 - **Plans**: tick off a recipe's or a trip's steps as you go.
 - **Search** captions, transcripts and notes by word or idea. Tag, file, plan, or archive saves directly from the results.
-- **Assistant** finds saves, shows clickable results, and answers questions with links back to the videos.
-- **Unsave**: a list of saves whose notes are kept, so you can clear them out of the original app.
+- **Assistant** chats about your library, asks for details when a request is unclear, and can find or organise saves. Undo the Assistant’s latest library edit from its reply.
+- **Unsave**: a checklist for videos you want to unsave on their platforms. Clear the checklist whenever you want a fresh list.
 
 ## Install
 
@@ -23,7 +23,7 @@ It runs on your PC with no Keptwise account or tracking. A free local AI can wor
 2. Run it. If Windows says "Windows protected your PC", click **More info**, then **Run anyway** (the installer isn't code-signed). No admin password is needed.
 3. Open Keptwise from the Start menu.
 
-On first start you pick your look and AI. A short practice tutorial walks through Import, Sort and Search.
+On first start you pick your look and AI. The guided tour highlights real controls across the app, from Import and Sort to Search and Unsave.
 
 - **Free, on this PC** with [Ollama](https://ollama.com/download). The app downloads the model for you (`gemma4:12b`, about 8 GB, or `gemma4:e4b` for slower PCs).
 - **Cloud** with your own Claude, OpenAI, Gemini or OpenRouter key. The key is stored in Windows Credential Manager, and the app asks before any batch that costs money.

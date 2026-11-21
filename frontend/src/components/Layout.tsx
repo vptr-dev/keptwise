@@ -5,6 +5,7 @@
 import { useEffect, useState, type DragEvent, type ReactNode } from "react";
 
 import Logo from "./Logo";
+import CaptionBar from "./CaptionBar";
 import { NAV_DRAG } from "../features/organize/organizeApi";
 import { movedNav } from "../features/organize/tree";
 import { THEME_LABELS, type ThemeChoice } from "../lib/theme";
@@ -103,7 +104,9 @@ export default function Layout({
   const aiDot = status.aiReady === null ? "bg-zinc-400" : status.aiReady ? "bg-emerald-500" : "bg-amber-500";
 
   return (
-    <div className="flex h-screen text-zinc-900 dark:text-zinc-100">
+    <div className="flex h-screen flex-col text-zinc-900 dark:text-zinc-100">
+      <CaptionBar />
+      <div className="flex min-h-0 flex-1">
       <aside
         className={`kw-glass flex shrink-0 flex-col border-r border-zinc-200 bg-white transition-[width] dark:border-zinc-800 dark:bg-zinc-900 ${
           compact ? "w-16" : "w-60"
@@ -258,6 +261,7 @@ export default function Layout({
           </header>
         )}
         <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>
+      </div>
       </div>
     </div>
   );

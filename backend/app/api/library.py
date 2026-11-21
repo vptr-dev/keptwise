@@ -212,7 +212,7 @@ def _overview_counts(conn: sqlite3.Connection, platform: str | None = None) -> d
     unsave_scope, unsave_params = scope.where(platform, "items", deleted=None)
     counts["to_unsave"] = int(conn.execute(
         f"""SELECT COUNT(*) FROM items
-            WHERE (safe_to_unsave = 1 OR deleted_at IS NOT NULL) AND unsaved = 0 AND gone_at IS NULL AND {unsave_scope}""",
+            WHERE (safe_to_unsave = 1 OR deleted_at IS NOT NULL) AND unsave_hidden = 0 AND unsaved = 0 AND gone_at IS NULL AND {unsave_scope}""",
         unsave_params,
     ).fetchone()[0])
     # Plans are the user's own lists: open ones (not finished).
@@ -284,13 +284,19 @@ class ItemPatch(BaseModel):
     done: bool | None = None
     safe_to_unsave: bool | None = None
     unsaved: bool | None = None
+    unavailable: bool | None = None
     deleted: bool | None = None  # True: to the Archive; False: put it back
 
 
 @router.patch("/items/{item_id}")
 def patch_item(item_id: int, body: ItemPatch, svc: AppServices = Depends(services)) -> dict[str, Any]:
     with svc.db.connect() as conn:
-        one_card(conn, item_id)
+        item = one_card(conn, item_id)
+        if body.unavailable and (item["deleted"] or not (item["error"] or item["status"] == "failed" or item["gone"])):
+            raise HTTPException(status_code=409, detail="Only a save Keptwise couldn't read can be marked unavailable.")
+        if body.unavailable is not None and body.unavailable != item["gone"]:
+            conn.execute("UPDATE items SET gone_at = ? WHERE id = ?",
+                         (progress.now_iso() if body.unavailable else None, item_id))
         if body.done is not None:
             progress.set_done(conn, item_id, body.done)
         if body.safe_to_unsave is not None:
@@ -358,7 +364,7 @@ def _unsave_cards(conn: sqlite3.Connection, platform: str | None = None) -> list
     scoped, params = scope.where(platform, deleted=None)
     rows = conn.execute(
         f"""{CARD_SQL} WHERE (i.safe_to_unsave = 1 OR i.deleted_at IS NOT NULL)
-            AND i.gone_at IS NULL AND {scoped} ORDER BY i.unsaved, i.platform, i.saved_at DESC, i.id DESC""",
+            AND i.unsave_hidden = 0 AND i.gone_at IS NULL AND {scoped} ORDER BY i.unsaved, i.platform, i.saved_at DESC, i.id DESC""",
         params,
     ).fetchall()
     return cards_from_rows(conn, rows)
@@ -372,6 +378,18 @@ def unsave_list(svc: AppServices = Depends(services)) -> dict[str, Any]:
         "items": cards,
         "left": sum(1 for card in cards if not card["unsaved"]),
     }
+
+
+@router.post("/unsave/clear")
+def clear_unsave(svc: AppServices = Depends(services)) -> dict[str, int]:
+    scoped, params = scope.where(scope.current(svc.settings), "items", deleted=None)
+    with svc.db.connect() as conn:
+        cursor = conn.execute(
+            f"""UPDATE items SET unsave_hidden = 1 WHERE unsave_hidden = 0 AND gone_at IS NULL
+                AND (safe_to_unsave = 1 OR deleted_at IS NOT NULL) AND {scoped}""",
+            params,
+        )
+        return {"cleared": cursor.rowcount}
 
 
 @router.get("/unsave/export.csv")
@@ -466,6 +484,7 @@ class UiSettings(BaseModel):
     # The first-run setup (name, look, start page) was finished or skipped.
     welcomed: bool = False
     tutorial_seen: bool = False
+    hide_sort_stats: bool = False
     hide_tips: bool = False  # long-time users: no tips, blurbs or descriptions
 
     @field_validator("start_page", mode="before")

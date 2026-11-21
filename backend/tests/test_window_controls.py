@@ -36,7 +36,7 @@ def test_fullscreen_restores_a_maximized_window_to_maximized() -> None:
 
 def test_fullscreen_is_the_only_window_action_exposed_to_the_page() -> None:
     public = {name for name in dir(WindowControls) if not name.startswith("_") and callable(getattr(WindowControls, name))}
-    assert public == {"toggle_fullscreen"}
+    assert public == {"toggle_fullscreen", "info", "caption"}
 
 
 def test_the_taskbar_icon_is_the_plain_white_logo_with_no_tile() -> None:

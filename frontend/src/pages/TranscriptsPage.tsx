@@ -21,7 +21,9 @@ import { navigate, useRoute } from "../lib/router";
 
 const BATCH_SIZES = [5, 50, 200];
 
-export default function TranscriptsPage() {
+export default function TranscriptsPage({ hideStats = false, onToggleStats }: {
+  hideStats?: boolean; onToggleStats?: () => void;
+}) {
   const { query } = useRoute();
   const jobs = useJobs();
   const [overview, setOverview] = useState<EnrichOverview | null>(null);
@@ -93,7 +95,10 @@ export default function TranscriptsPage() {
       ) : (
         counts && (
           <SortSection step={1} title="Get transcripts" defaultOpen>
-            <dl className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            {onToggleStats && <Button variant="ghost" size="sm" onClick={onToggleStats}>
+              {hideStats ? "Show stats" : "Hide stats"}
+            </Button>}
+            {!hideStats && <dl className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             <Count label="Waiting" value={counts.waiting} testId="count-waiting" />
             <Count label="Details ready" value={counts.done} testId="count-done" />
             <Count label="No speech detected" value={counts.no_speech} testId="count-no-speech" title="The speech model found no words. The clip may still have sound." />
@@ -105,7 +110,7 @@ export default function TranscriptsPage() {
               href="#/archive/gone"
               title="Keptwise previously marked these videos as unavailable. You can check them again."
             />
-          </dl>
+          </dl>}
           {(counts.failed_reasons ?? []).length > 0 && (
             <details className="mt-3 text-sm">
               <summary className="cursor-pointer text-xs font-medium text-zinc-500 dark:text-zinc-400">Read errors</summary>
@@ -140,6 +145,11 @@ export default function TranscriptsPage() {
               >
                 All {counts.waiting.toLocaleString("en-GB")} waiting
               </Button>
+            </div>
+            {(counts.failed > 0 || counts.no_speech > 0 || !!counts.gone) && (
+            <details className="rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
+              <summary className="cursor-pointer text-sm font-medium">Retry and recheck</summary>
+              <div className="mt-2 flex flex-wrap gap-2">
               {counts.failed > 0 && (
                 <Button variant="ghost" disabled={busy || running !== undefined} onClick={() => start(null, "failed")}>
                   Try the {counts.failed.toLocaleString("en-GB")} failed again
@@ -155,7 +165,9 @@ export default function TranscriptsPage() {
                   Recheck {counts.gone.toLocaleString("en-GB")} unavailable
                 </Button>
               )}
-            </div>
+              </div>
+            </details>
+            )}
             <TikTokAccess connected={overview?.tiktok_session ?? false} onChange={refresh} />
             {model && (
               <p className="mt-4 text-xs text-zinc-500 dark:text-zinc-400">
@@ -204,7 +216,8 @@ function SortSection({
       if (event.target === event.currentTarget) setOpen(event.currentTarget.open);
     }}
       className="group kw-glass rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-      <summary className="flex cursor-pointer list-none items-center gap-3 rounded-2xl px-4 py-3 font-medium focus-visible:outline-2 focus-visible:outline-indigo-500">
+      <summary data-tour={step === 1 ? "sort" : step === 2 ? "notes" : step === 3 ? "review" : undefined}
+        className="flex cursor-pointer list-none items-center gap-3 rounded-2xl px-4 py-3 font-medium focus-visible:outline-2 focus-visible:outline-indigo-500">
         {step !== undefined && <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-indigo-100 text-xs text-indigo-800 dark:bg-indigo-950 dark:text-indigo-200">{step}</span>}
         <span className="flex-1">{title}</span>
         <span className="h-4 w-4 -rotate-90 text-zinc-500 transition-transform group-open:rotate-0" aria-hidden="true">{icons.down}</span>

@@ -29,6 +29,7 @@ export type Look = {
   card_actions: boolean; // quick buttons on a card when the mouse is over it
   welcomed?: boolean; // the first-run setup is done (false: show it)
   tutorial_seen?: boolean;
+  hide_sort_stats?: boolean;
   hide_tips?: boolean; // no tips, blurbs or descriptions (Settings -> Appearance)
   look_version?: number; // kept by the backend
 };

@@ -236,3 +236,31 @@ def test_find_can_list_newest_saves_and_distinguishes_questions(api: TestClient,
     assert [source["item_id"] for source in last["sources"]] == [newer, older]
     assert find_query("Show me how to cook it") is None
     assert find_query("Find my videos about how to cook rice") == "how to cook rice"
+
+
+def test_assistant_clarifies_then_records_an_exact_undo(api: TestClient, net: FakeNet) -> None:
+    Script(net, [
+        {"mode": "clarify", "say": "What should the collection be called?", "title": "New collection"},
+        {"mode": "act", "actions": [{"method": "POST", "path": "/api/collections",
+                                     "body": {"name": "Weekend"}, "why": "Created Weekend"}]},
+        {"mode": "done", "say": "I made the Weekend collection."},
+    ])
+    chat = ask(api, "Make a collection for me")
+    first = chat["messages"][-1]
+    assert first["content"] == "What should the collection be called?"
+    assert chat["title"] == "New collection" and first["actions"]["state"] == "clarifying"
+    reply = api.post(f"/api/assistant/chats/{chat['id']}/messages", json={"content": "Weekend"})
+    assert reply.status_code == 200, reply.text
+    step = reply.json()["messages"][-1]["actions"]["undo_id"]
+    assert step
+    assert api.post(f"/api/undo?expected_id={step + 1}").status_code == 409
+    assert api.post(f"/api/undo?expected_id={step}").status_code == 200
+    assert not any(c["name"] == "Weekend" for c in api.get("/api/collections").json()["collections"])
+
+
+def test_conversational_request_cannot_make_unrequested_edits(api: TestClient, net: FakeNet) -> None:
+    Script(net, [{"mode": "act", "actions": [{"method": "POST", "path": "/api/collections",
+                                              "body": {"name": "Surprise"}}]}])
+    last = ask(api, "What is a good way to organise my saves?")["messages"][-1]
+    assert last["actions"]["state"] == "clarifying"
+    assert not any(c["name"] == "Surprise" for c in api.get("/api/collections").json()["collections"])

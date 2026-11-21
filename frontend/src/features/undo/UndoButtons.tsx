@@ -14,11 +14,18 @@ type UndoState = { undo: Step; redo: Step };
 
 export const undoApi = {
   state: () => api.get<UndoState>("/api/undo"),
-  undo: () => api.post<UndoState & { done: string }>("/api/undo"),
+  undo: (expectedId?: number) => api.post<UndoState & { done: string }>(
+    expectedId === undefined ? "/api/undo" : `/api/undo?expected_id=${expectedId}`,
+  ),
   redo: () => api.post<UndoState & { done: string }>("/api/redo"),
 };
 
 const AFTER_UNDO = "kw-after-undo";
+
+export function announceUndo(): void {
+  announceChange();
+  window.dispatchEvent(new Event(AFTER_UNDO));
+}
 
 /** Pages reload their data after an Undo or Redo. */
 export function onUndo(listener: () => void): () => void {
@@ -53,8 +60,7 @@ export default function UndoButtons() {
       const result = await (which === "undo" ? undoApi.undo() : undoApi.redo());
       setState({ undo: result.undo, redo: result.redo });
       toast(`${which === "undo" ? "Undone" : "Redone"}: ${result.done}`);
-      announceChange();
-      window.dispatchEvent(new Event(AFTER_UNDO));
+      announceUndo();
     } catch (error) {
       toast(errorText(error), { tone: "error" });
       refresh();

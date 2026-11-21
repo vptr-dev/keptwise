@@ -50,6 +50,7 @@ import webview  # noqa: E402
 from app import __version__  # noqa: E402
 from app.main import create_app  # noqa: E402
 import single_instance  # noqa: E402
+import window_frame  # noqa: E402
 from window_icon import set_app_id, set_window_icon  # noqa: E402
 
 WINDOW_TITLE = "Keptwise"
@@ -134,6 +135,29 @@ class WindowControls:
         self._window: webview.Window | None = None
         self._fullscreen_lock = threading.Lock()
         self._maximize_on_exit = False
+        self._frame = None
+
+    def info(self) -> dict[str, bool]:
+        native = getattr(self._window, "native", None)
+        return {
+            "integrated": self._frame is not None,
+            "maximized": str(getattr(native, "WindowState", "")) == "Maximized",
+            "fullscreen": bool(getattr(native, "is_fullscreen", False)),
+        }
+
+    def caption(self, action: str) -> None:
+        window = self._window
+        state = self.info()
+        if window is None or not state["integrated"] or state["fullscreen"]:
+            return
+        if action == "move":
+            window_frame.begin_drag(window)
+        elif action == "minimize":
+            window.minimize()
+        elif action == "maximize":
+            (window.restore if state["maximized"] else window.maximize)()
+        elif action == "close":
+            window.destroy()
 
     def toggle_fullscreen(self) -> None:
         window = self._window
@@ -253,7 +277,18 @@ def main(argv: list[str] | None = None) -> int:
             os._exit(0)
 
         services.extras["quit_app"] = quit_for_update
-        window.events.shown += lambda: set_window_icon(window, WINDOW_TITLE, ICON_FILE)
+        def shown() -> None:
+            set_window_icon(window, WINDOW_TITLE, ICON_FILE)
+            try:
+                controls._frame = window_frame.install(window)
+            except Exception as error:  # Keep the Windows frame if integration is unsupported.
+                print(f"Using the Windows window frame: {error}")
+            try:
+                window.evaluate_js("window.dispatchEvent(new Event('keptwise-frame'))")
+            except Exception:
+                pass  # The page also reads the state when the bridge becomes ready.
+
+        window.events.shown += shown
         # private_mode: the window keeps no cookies or cache after it closes.
         if args.smoke_test:
             result: dict[str, bool] = {}

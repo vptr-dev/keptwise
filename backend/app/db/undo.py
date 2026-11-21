@@ -50,6 +50,7 @@ LABELS: list[tuple[str, str, str]] = [
     ("POST", r"/api/tags/delete$", "Delete tags"),
     ("POST", r"/api/items/\d+/tags$", "Tag a save"),
     ("DELETE", r"/api/items/\d+/tags/\d+$", "Take a tag off"),
+    ("POST", r"/api/unsave/clear$", "Clear the Unsave checklist"),
     ("POST", r"/api/items/bulk$", "Change saves"),
     ("PATCH", r"/api/items/\d+$", "Change a save"),
     ("DELETE", r"/api/items/\d+$", "Delete a save for good"),
@@ -194,13 +195,13 @@ class UndoHistory:
             "redo": {"id": undone[0], "label": undone[1]} if undone else None,
         }
 
-    def undo(self) -> str:
-        return self._replay("done", "undone", "DESC")
+    def undo(self, expected_id: int | None = None) -> str:
+        return self._replay("done", "undone", "DESC", expected_id)
 
     def redo(self) -> str:
         return self._replay("undone", "done", "ASC")
 
-    def _replay(self, have: str, becomes: str, order: str) -> str:
+    def _replay(self, have: str, becomes: str, order: str, expected_id: int | None = None) -> str:
         token = recording.set(None)
         try:
             with self._lock, self.db.connect() as conn:
@@ -210,6 +211,8 @@ class UndoHistory:
                 if row is None:
                     raise LookupError("There's nothing to undo." if have == "done" else "There's nothing to redo.")
                 step, label = int(row[0]), str(row[1])
+                if expected_id is not None and step != expected_id:
+                    raise LookupError("A newer change comes first. Use the main Undo button to take it back.")
                 lines = [r[0] for r in conn.execute("SELECT sql FROM undo_log WHERE step = ? ORDER BY id DESC", (step,))]
                 self.start_recording(conn, REPLAY_STEP)
                 conn.execute("PRAGMA defer_foreign_keys=ON")  # rows come back parents and children in any order

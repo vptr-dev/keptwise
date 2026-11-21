@@ -121,7 +121,7 @@ export default function ImportPage() {
           is added twice.
         </p>
         <div className="mt-5 flex flex-wrap justify-center gap-2">
-          <Button onClick={() => fileInput.current?.click()} disabled={busy}>
+          <Button data-tour="import" onClick={() => fileInput.current?.click()} disabled={busy}>
             Choose zip file
           </Button>
           <Button variant="secondary" onClick={() => folderInput.current?.click()} disabled={busy}>

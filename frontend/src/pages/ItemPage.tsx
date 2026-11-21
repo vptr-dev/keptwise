@@ -215,6 +215,11 @@ export default function ItemPage({ itemId }: { itemId: number }) {
               <span className="h-4 w-4">{icons.chat}</span>
               Ask AI
             </Button>
+            {!item.deleted && !item.gone && (item.status === "failed" || item.error) && (
+              <Button variant="ghost" disabled={busy} onClick={() => void update(() => libraryApi.patch(itemId, { unavailable: true }))}>
+                Mark unavailable
+              </Button>
+            )}
             {!item.deleted && retryTarget && (
               <Button variant="secondary" disabled={busy} onClick={() => void retryTranscript()}>
                 {item.gone ? "Check availability" : "Retry transcript"}

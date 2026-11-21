@@ -139,7 +139,7 @@ export default function ArchivePage({ tab: wanted = null, cardSize = "medium" }:
   return (
     <div className="mx-auto max-w-6xl space-y-5 px-8 py-8">
       <header>
-        <h1 className="text-2xl font-semibold tracking-tight">Archive</h1>
+        <h1 className="text-2xl font-semibold tracking-tight" data-tour="archive">Archive</h1>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
           Archiving moves a save within Keptwise. After you unsave something on TikTok or another platform, mark it in the Unsave checklist.
         </p>

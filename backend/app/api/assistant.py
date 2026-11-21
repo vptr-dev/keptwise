@@ -132,9 +132,8 @@ class AgentTools:
     def new_step(self) -> int:
         return self._undo.new_step() if self._undo is not None else 0
 
-    def finish(self, step: int, label: str) -> None:
-        if self._undo is not None:
-            self._undo.finish(step, label)
+    def finish(self, step: int, label: str) -> bool:
+        return bool(self._undo is not None and self._undo.finish(step, label))
 
 
 class ConfirmBody(BaseModel):

@@ -364,7 +364,7 @@ def test_assistant_keeps_chats_and_answers_from_saves(sapi: TestClient, ssvc: Ap
     chat = sapi.post("/api/assistant/chats", json={}).json()
     assert chat["title"] == "New chat" and chat["tool"] == "ask"
     data = sapi.post(f"/api/assistant/chats/{chat['id']}/messages", json={"content": "what pasta did I save?"}).json()
-    assert data["title"] == "what pasta did I save?"
+    assert data["title"] == "What pasta did I save"
     assert [m["role"] for m in data["messages"]] == ["user", "assistant"]
     assert data["messages"][1]["sources"][0]["item"]["id"] == pasta
     again = sapi.post(f"/api/assistant/chats/{chat['id']}/messages", json={"content": "and how long?"}).json()

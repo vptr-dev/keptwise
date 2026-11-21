@@ -124,3 +124,28 @@ def test_saves_taken_down_on_the_platform_have_their_own_part_of_the_archive(api
     assert api.get("/api/archive").json() == {"deleted": 0, "unsaved": 0, "gone": 1}
     assert [item["id"] for item in api.get("/api/unsave").json()["items"]] == [one]
     assert api.get(f"/api/library/items?archive=gone").json()["items"][0]["gone"] is True
+
+
+def test_clear_checklist_keeps_library_and_can_be_undone(api: TestClient, svc: AppServices) -> None:
+    with svc.db.connect() as conn:
+        save_id, _ = upsert_item(conn, NewItem("tiktok", "https://example.com/checklist"))
+        update_item(conn, save_id, safe_to_unsave=1)
+    assert api.get("/api/unsave").json()["left"] == 1
+    assert api.post("/api/unsave/clear").json()["cleared"] == 1
+    assert api.get("/api/unsave").json() == {"items": [], "left": 0}
+    saved = api.get(f"/api/items/{save_id}").json()["item"]
+    assert not saved["unsaved"] and not saved["deleted"]
+    assert api.post("/api/undo").status_code == 200
+    assert api.get("/api/unsave").json()["left"] == 1
+
+
+def test_a_failed_save_can_be_marked_unavailable_and_undone(api: TestClient, svc: AppServices) -> None:
+    with svc.db.connect() as conn:
+        save_id, _ = upsert_item(conn, NewItem("tiktok", "https://example.com/unreadable"))
+        update_item(conn, save_id, status="failed", error="Could not read")
+    response = api.patch(f"/api/items/{save_id}", json={"unavailable": True})
+    assert response.status_code == 200 and response.json()["gone"]
+    assert not response.json()["unsaved"] and not response.json()["deleted"]
+    assert library_ids(api, "&archive=gone") == [save_id]
+    assert api.post("/api/undo").status_code == 200
+    assert not api.get(f"/api/items/{save_id}").json()["item"]["gone"]

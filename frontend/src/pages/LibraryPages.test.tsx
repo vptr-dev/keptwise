@@ -465,3 +465,18 @@ test("changing the theme without the reveal effect still changes it", async () =
   expect(change).toHaveBeenCalledTimes(1);
   expect(themeButtonSpot()).toEqual({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
 });
+
+
+test("clearing Unsave asks first and empties the checklist", async () => {
+  let cleared = false;
+  const calls = fakeBackend({
+    "GET /api/unsave": () => cleared ? { left: 0, items: [] } : { left: 1, items: [libraryItem()] },
+    "POST /api/unsave/clear": () => { cleared = true; return { cleared: 1 }; },
+  });
+  render(<UnsavePage />);
+  fireEvent.click(await screen.findByRole("button", { name: "Clear checklist" }));
+  const confirmation = screen.getByRole("dialog", { name: "Clear this checklist?" });
+  expect(calls.filter((call) => call.method === "POST")).toHaveLength(0);
+  fireEvent.click(within(confirmation).getByRole("button", { name: "Clear checklist" }));
+  expect(await screen.findByText("Nothing to unsave yet")).toBeInTheDocument();
+});

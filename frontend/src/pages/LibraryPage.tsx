@@ -210,7 +210,7 @@ export default function LibraryPage({
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           {greeting(name) && <p className="text-sm font-medium text-indigo-600 dark:text-indigo-400">{greeting(name)}</p>}
-          <h1 className="text-2xl font-semibold tracking-tight">Library</h1>
+          <h1 className="text-2xl font-semibold tracking-tight" data-tour="library">Library</h1>
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
             {items === null ? "Loading…" : `${total.toLocaleString()} save${total === 1 ? "" : "s"}${filtered ? " match" : ""}`}
             {query.creator && (

@@ -6,6 +6,9 @@ import { useEffect, useState } from "react";
 import EmptyState from "../components/EmptyState";
 import ProgressBar from "../components/ProgressBar";
 import { icons } from "../components/icons";
+import { useDialog } from "../components/Dialog";
+import { toast } from "../components/Toasts";
+import { announceChange } from "../features/organize/organizeApi";
 import { Button, Notice } from "../components/ui";
 import {
   displayTitle,
@@ -55,6 +58,8 @@ function Row({ item, busy, onToggle }: { item: LibraryItem; busy: boolean; onTog
 }
 
 export default function UnsavePage() {
+  const [ask, dialog] = useDialog();
+  const [clearing, setClearing] = useState(false);
   const [list, setList] = useState<UnsaveList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
@@ -116,6 +121,27 @@ export default function UnsavePage() {
     }
   }
 
+  async function clearChecklist() {
+    if (!list?.items.length || clearing) return;
+    setClearing(true);
+    try {
+      if (!(await ask.confirm({
+        title: "Clear this checklist?",
+        body: "Remove all saves on the checklist for the selected platform. Your videos and notes stay in Keptwise. Undo is in the top bar.",
+        confirm: "Clear checklist",
+      }))) return;
+      const { cleared } = await libraryApi.clearUnsave();
+      setList(await libraryApi.unsave());
+      setExported(null);
+      announceChange();
+      if (cleared) toast(`Cleared ${cleared.toLocaleString()} saves from the checklist.`);
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setClearing(false);
+    }
+  }
+
   const items = list?.items ?? [];
   const shown = hideDone ? items.filter((item) => !item.unsaved) : items;
   const platforms = [...new Set(shown.map((item) => item.platform_name))];
@@ -123,9 +149,10 @@ export default function UnsavePage() {
 
   return (
     <div className="mx-auto max-w-3xl px-8 py-8">
+      {dialog}
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Unsave</h1>
+          <h1 className="text-2xl font-semibold tracking-tight" data-tour="unsave">Unsave</h1>
           <p className="kw-tip text-sm text-zinc-500 dark:text-zinc-400">
             Mark a save after you unsave it yourself on TikTok or another platform. Archived saves can appear here as reminders.
           </p>
@@ -136,7 +163,10 @@ export default function UnsavePage() {
               <span className="h-4 w-4">{icons.download}</span>
               {exporting ? "Exporting…" : "Export CSV"}
             </Button>
-            <Button disabled={!list?.left || walkQueue !== null} onClick={startWalkthrough}>
+            <Button variant="ghost" disabled={clearing || busyId !== null || walkQueue !== null} onClick={() => void clearChecklist()}>
+              Clear checklist
+            </Button>
+            <Button disabled={!list?.left || walkQueue !== null || clearing} onClick={startWalkthrough}>
               <span className="h-4 w-4">{icons.external}</span>
               Unsave one by one
             </Button>
@@ -207,7 +237,7 @@ export default function UnsavePage() {
                   {shown
                     .filter((item) => item.platform_name === platform)
                     .map((item) => (
-                      <Row key={item.id} item={item} busy={busyId === item.id} onToggle={(unsaved) => void toggle(item, unsaved)} />
+                      <Row key={item.id} item={item} busy={clearing || busyId === item.id} onToggle={(unsaved) => void toggle(item, unsaved)} />
                     ))}
                 </ul>
               </section>

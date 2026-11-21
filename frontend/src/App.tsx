@@ -99,10 +99,9 @@ export default function App() {
   const showTutorial = lookLoaded && !welcome && !showWizard &&
     (tutorialRequested || (overview !== null && look.tutorial_seen === false));
   const openTutorial = useCallback(() => setTutorialRequested(true), []);
-  const closeTutorial = (destination?: string) => {
+  const closeTutorial = () => {
     setTutorialRequested(false);
     if (!look.tutorial_seen) changeLook({ tutorial_seen: true });
-    if (destination) navigate(destination);
   };
   const [counts, setCounts] = useState<OverviewCounts | null>(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -304,7 +303,8 @@ export default function App() {
   else if (page === "unsave") content = <UnsavePage />;
   else if (page === "archive") content = <ArchivePage tab={route.parts[1] ?? null} cardSize={look.card_size} />;
   else if (page === "import") content = <ImportPage />;
-  else if (page === "transcripts" || page === "sort") content = <TranscriptsPage />;
+  else if (page === "transcripts" || page === "sort") content = <TranscriptsPage hideStats={look.hide_sort_stats}
+    onToggleStats={() => changeLook({ hide_sort_stats: !look.hide_sort_stats })} />;
   else if (page === "collections") content = <CollectionsPage selection={route.parts[1] ?? null} />;
   else if (page === "tags") content = <TagsPage />;
   else if (page === "search") content = <SearchPage />;

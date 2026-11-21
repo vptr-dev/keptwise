@@ -39,11 +39,11 @@ SMALL_BATCH = 10  # more changes, or more saves, than this at once: ask first
 ALLOWED = re.compile(
     r"^/api/(library(/items|/filters)?|overview|archive|unsave|scope|ui|collections(?!/\{collection_id\}/icon)"
     r"|spaces|tags|items|plans|review|platform-collections|search|sorting/(resort|clear)|tags/ai|notes/start"
-    r"|enrich/start|undo|redo)"
+    r"|enrich/start|jobs|undo|redo)"
 )
-NOT_FOR_AI = re.compile(r"/thumbnail$|/search/(status|index)$|\.csv$|/export$|/open-folder$")
+NOT_FOR_AI = re.compile(r"/thumbnail$|/search/(status|index)$|\.csv$|/export$|/open-folder$|/open$|/dismiss-notice$")
 BIG_PATHS = re.compile(r"/merge$|/tags/delete$|/collections/bulk$|/platform-collections(?:/(apply|transfer|default))?$|/sorting/(resort|clear)$"
-                       r"|/review/accept-all$")
+                       r"|/review/accept-all$|/unsave/clear$")
 BIG_BULK = {"delete", "purge", "move_to", "remove_from", "unsaved"}
 
 Caller = Callable[[str, str, dict[str, Any] | None, int], tuple[int, Any]]
@@ -57,20 +57,22 @@ class Action(BaseModel):
 
 
 class AgentReply(BaseModel):
-    mode: Literal["answer", "act", "done"]
+    mode: Literal["chat", "clarify", "answer", "act", "done"]
     actions: list[Action] = Field(default_factory=list, max_length=30)
     say: str = ""
+    title: str = Field(default="", max_length=80)
 
 
 RULES = (
     "You are the AI Assistant inside Keptwise, a desktop app where the user keeps the videos and posts they "
     "saved on TikTok, YouTube, Instagram and Facebook, organised into collections (inside spaces), tags and plans.\n"
-    "You can do two kinds of thing:\n"
-    "1. Answer a question about what is IN the saves (recipes, tips, places, how-tos, what they saved most). "
-    'For that reply {"mode": "answer"} and nothing else: another step reads the saves and answers.\n'
-    "2. Do something in the app for the user: organise, create, rename, move, tag, file, delete, restore, "
-    "make or change plans, change how the app looks, undo or redo, anything the actions below allow. "
-    'For that reply {"mode": "act", "actions": [...], "say": "..."}.\n'
+    "Talk like a helpful person. Choose a mode based on what the user wants.\n"
+    "- chat: talk, explain how Keptwise works, brainstorm, or respond to greetings. Put the reply in say. "
+    "Never make changes for conversation, advice or suggestions.\n"
+    "- clarify: ask one specific question if an edit's target or outcome is ambiguous. Use the user's next reply.\n"
+    "- answer: retrieve and cite saves for questions about their contents.\n"
+    "- act: look up saves or execute explicit edit requests only. Never claim a change unless it succeeded.\n"
+    "Fill title with a short topic of six words or fewer for the first substantive request.\n"
     "How to act:\n"
     "- For requests to find or show saves, use answer mode or GET /api/search. Never edit saves in a lookup.\n"
     "- Use only the actions listed, with real ids from the data below or from earlier results. Never invent ids.\n"
@@ -141,7 +143,7 @@ def catalog(app: Any) -> list[dict[str, str]]:
         if not isinstance(route, APIRoute) or not ALLOWED.match(route.path):
             continue
         for method in sorted(route.methods or []):
-            if method == "HEAD" or NOT_FOR_AI.search(route.path):
+            if method == "HEAD" or NOT_FOR_AI.search(route.path) or (route.path.startswith("/api/jobs") and method != "GET"):
                 continue
             body = getattr(route.body_field, "field_info", None) and route.body_field.field_info.annotation  # type: ignore[union-attr]
             query = [p.name for p in route.dependant.query_params if p.name != "svc"]
@@ -180,7 +182,11 @@ def allowed(action: Action, actions: list[dict[str, str]]) -> bool:
 
 def is_big(changes: list[Action]) -> bool:
     """Steps the user should see before they happen."""
-    if len(changes) > SMALL_BATCH:
+    affected = sum(
+        max(1, len(action.body["item_ids"])) if isinstance((action.body or {}).get("item_ids"), list) else 1
+        for action in changes
+    )
+    if affected > SMALL_BATCH:
         return True
     for change in changes:
         path = change.path.split("?", 1)[0]
@@ -280,7 +286,7 @@ def messages(question_history: list[Message], data: str, actions: str, rounds: l
             kept.insert(0, line)
         parts.append("What you've done so far in this request, and the results:\n" + "\n".join(kept))
     parts.append(
-        'Reply as JSON: {"mode": "answer" | "act" | "done", "actions": [{"method": "...", "path": "/api/...", '
+        'Reply as JSON: {"mode": "chat" | "clarify" | "answer" | "act" | "done", "actions": [{"method": "...", "path": "/api/...", '
         '"body": {...}, "why": "short"}], "say": "..."}'
     )
     return [{"role": "system", "content": RULES}, {"role": "user", "content": "\n\n".join(parts)}]
@@ -297,6 +303,8 @@ def run(
     history: list[Message],
     state: dict[str, Any],
     step: int,
+    *,
+    allow_changes: bool = True,
 ) -> dict[str, Any]:
     """Go round: ask the AI, run what it asks for, show it the results.
 
@@ -305,18 +313,25 @@ def run(
     "say", "pending", "state"} (big steps waiting for "Do it")."""
     rounds: list[str] = state.setdefault("rounds", [])
     changed: list[str] = state.setdefault("changed", [])
+    title = ""
+    edits: list[Action] = []
     text = catalog_text(actions)
     for _ in range(MAX_ROUNDS):
         try:
             reply = chat_json(messages(history, data, text, rounds), AgentReply)
         except AIError as error:
+            if changed:
+                return {"mode": "done", "say": _summary(changed), "changed": changed, "title": title}
             if rounds or getattr(error, "code", "") != "bad_json":
                 raise
             return {"mode": "answer"}  # the model can't do actions: answer from the saves as before
-        if reply.mode == "answer" and not rounds:
-            return {"mode": "answer"}
+        title = title or reply.title
+        if reply.mode == "answer" and not changed:
+            return {"mode": "answer", "title": title}
+        if reply.mode in ("chat", "clarify") and reply.say.strip():
+            return {"mode": reply.mode, "say": reply.say.strip(), "changed": changed, "title": title}
         if reply.mode != "act" or not reply.actions:
-            return {"mode": "done", "say": reply.say.strip() or _summary(changed), "changed": changed, "rounds": rounds}
+            return {"mode": "done", "say": reply.say.strip() or _summary(changed), "changed": changed, "rounds": rounds, "title": title}
         rounds.append("You asked for: " + json.dumps([a.model_dump(exclude_none=True) for a in reply.actions], ensure_ascii=False))
         looks = [a for a in reply.actions if a.method == "GET"]
         if looks and len(looks) < len(reply.actions):
@@ -325,15 +340,19 @@ def run(
             rounds.append("Your changes in that reply were not run: send them again now that you have the results.")
             continue
         changes = [a for a in reply.actions if a.method != "GET"]
-        if changes and is_big(changes):
+        if changes and not allow_changes:
+            return {"mode": "clarify", "say": "What would you like me to change?", "changed": changed, "title": title}
+        if changes and is_big(edits + changes):
             _run_all(call, [a for a in reply.actions if a.method == "GET"], actions, rounds, changed, step)
             return {
                 "mode": "waiting",
-                "say": "This needs your OK first. Press Do it to go ahead, or Cancel.",
+                "say": "Here’s what I’m proposing.",
+                "title": title,
                 "pending": [a.model_dump(exclude_none=True) for a in changes],
                 "state": state,
             }
         _run_all(call, reply.actions, actions, rounds, changed, step)
+        edits.extend(changes)
     return {"mode": "done", "say": _summary(changed) + " I stopped there: it was taking too many steps.", "changed": changed}
 
 

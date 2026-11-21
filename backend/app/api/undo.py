@@ -23,8 +23,8 @@ def undo_state(svc: AppServices = Depends(services)) -> dict[str, Any]:
 
 
 @router.post("/undo")
-def undo(svc: AppServices = Depends(services)) -> dict[str, Any]:
-    return _replay(svc, "undo")
+def undo(expected_id: int | None = None, svc: AppServices = Depends(services)) -> dict[str, Any]:
+    return _replay(svc, "undo", expected_id)
 
 
 @router.post("/redo")
@@ -32,10 +32,10 @@ def redo(svc: AppServices = Depends(services)) -> dict[str, Any]:
     return _replay(svc, "redo")
 
 
-def _replay(svc: AppServices, which: str) -> dict[str, Any]:
+def _replay(svc: AppServices, which: str, expected_id: int | None = None) -> dict[str, Any]:
     history = _history(svc)
     try:
-        label = history.undo() if which == "undo" else history.redo()
+        label = history.undo(expected_id) if which == "undo" else history.redo()
     except LookupError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
     except RuntimeError as error:

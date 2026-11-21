@@ -162,13 +162,14 @@ export const libraryApi = {
   overview: () => api.get<Overview>("/api/overview"),
   item: (id: number) => api.get<ItemPage>(`/api/items/${id}`),
   tick: (id: number, index: number, done: boolean) => api.put<LibraryItem>(`/api/items/${id}/steps/${index}`, { done }),
-  patch: (id: number, change: Partial<Pick<LibraryItem, "done" | "safe_to_unsave" | "unsaved" | "deleted">>) =>
+  patch: (id: number, change: Partial<Pick<LibraryItem, "done" | "safe_to_unsave" | "unsaved" | "deleted">> & { unavailable?: boolean }) =>
     api.patch<LibraryItem>(`/api/items/${id}`, change),
   /** Delete a save for good (only from the Archive). */
   purge: (id: number) => api.del<{ purged: number }>(`/api/items/${id}`),
   archiveCounts: () => api.get<{ deleted: number; unsaved: number; gone: number }>("/api/archive"),
   restart: (id: number) => api.post<LibraryItem>(`/api/items/${id}/restart`),
   unsave: () => api.get<UnsaveList>("/api/unsave"),
+  clearUnsave: () => api.post<{ cleared: number }>("/api/unsave/clear"),
   exportCsv: () => api.post<{ path: string; count: number }>("/api/unsave/export"),
   openDownloads: () => api.post<{ opened: boolean }>("/api/unsave/open-folder"),
   /** Open the save on its platform in the normal web browser. */

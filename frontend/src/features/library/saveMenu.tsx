@@ -75,6 +75,16 @@ export function saveMenuItems(raw: LibraryItem | ItemCard, { onChange, from, ext
         ),
     });
   }
+  if (!item.deleted && !item.gone && (item.error || item.status === "failed")) {
+    items.push({
+      label: "Mark unavailable",
+      onSelect: () => void attempt(
+        () => libraryApi.patch(item.id, { unavailable: true }).then(merge),
+        "Moved to Unavailable.",
+        () => libraryApi.patch(item.id, { unavailable: false }).then(merge),
+      ),
+    });
+  }
   items.push(
     { kind: "divider" },
     { label: "Ask Assistant", icon: icons.chat, onSelect: () => navigate(`/chat?items=${item.id}`) },
