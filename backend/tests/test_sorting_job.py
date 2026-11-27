@@ -303,6 +303,10 @@ def test_resort_route(api: TestClient, svc: AppServices, ollama: FakeNet) -> Non
     assert job["params"]["item_ids"] == [ids[1], ids[0]] and job["params"]["keep_manual"] is True
     done = wait_for_status(svc, job["id"], "done")
     assert done["message"] == "Re-sorted 2 videos: 2 in Unsorted with a suggestion."
+    url = "/api/sorting/resort"
+    assert api.post(url, json={"which": "unsorted", "item_ids": []}).status_code == 400
+    selected = api.post(url, json={"which": "unsorted", "item_ids": ids[:1]}).json()
+    assert selected["params"]["item_ids"] == ids[:1]
 
 
 def test_sorting_settings_route(api: TestClient, svc: AppServices) -> None:

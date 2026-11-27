@@ -149,3 +149,26 @@ def test_a_failed_save_can_be_marked_unavailable_and_undone(api: TestClient, svc
     assert library_ids(api, "&archive=gone") == [save_id]
     assert api.post("/api/undo").status_code == 200
     assert not api.get(f"/api/items/{save_id}").json()["item"]["gone"]
+
+
+def test_archive_batch_only_changes_the_confirmed_platform_and_members(api, svc):
+    from app.library import scope
+    from app.search.agent import catalog
+    assert all("/archive/batch" not in entry["path"] for entry in catalog(api.app))
+    first, second = add(svc, 1), add(svc, 2)
+    with svc.db.connect() as conn:
+        foreign, _ = upsert_item(conn, NewItem("youtube", "https://example.com/watch"))
+    for item_id in (first, foreign):
+        api.patch(f"/api/items/{item_id}", json={"deleted": True})
+    scope.choose(svc.settings, "tiktok")
+    url = "/api/archive/batch/purge"
+    preview = api.get(url).json()
+    assert preview["count"] == 1
+    api.patch(f"/api/items/{second}", json={"deleted": True})
+    assert api.post(url, json={"token": preview["token"]}).status_code == 409
+    restore = "/api/archive/batch/restore"
+    assert api.post(restore, json={"token": api.get(restore).json()["token"]}).json() == {"count": 2}
+    assert api.post("/api/undo").status_code == 200
+    assert api.post(url, json={"token": api.get(url).json()["token"]}).json() == {"count": 2}
+    scope.choose(svc.settings, None)
+    assert library_ids(api, "&archive=deleted") == [foreign]

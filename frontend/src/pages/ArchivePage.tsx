@@ -1,12 +1,3 @@
-// The Archive (#/archive, #/archive/unsaved, #/archive/gone): saves that
-// left the Library.
-//
-// Archived: saves you archived in Keptwise. Put them back, or delete them for good (their
-// notes, transcript and picture go too, and an import never brings them
-// back). Unsaved: saves you've unsaved on the platform; they stay usable in
-// the Library, and this is the list of what you've cleared out over there.
-// Unavailable: videos taken down or otherwise unavailable on the platform. They move here by
-// themselves when the app finds out, and leave the Library and collections.
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent } from "react";
 
 import type { MenuItem } from "../components/ContextMenu";
@@ -18,11 +9,11 @@ import { Button, Notice } from "../components/ui";
 import LibraryCard from "../features/library/LibraryCard";
 import { DEFAULT_QUERY, displayTitle, libraryApi, type LibraryItem } from "../features/library/libraryApi";
 import { announceChange, onOrganizeChange, organizeApi, type BulkAction } from "../features/organize/organizeApi";
-import { errorText } from "../lib/api";
+import { api, errorText } from "../lib/api";
 import { navigate } from "../lib/router";
 import { Tip } from "../lib/tips";
 
-type Tab = "deleted" | "unsaved" | "gone";
+type Tab = "deleted" | "gone";
 
 const GRID: Record<string, string> = {
   small: "grid-cols-[repeat(auto-fill,minmax(130px,1fr))] gap-3",
@@ -31,7 +22,7 @@ const GRID: Record<string, string> = {
 };
 
 export default function ArchivePage({ tab: wanted = null, cardSize = "medium" }: { tab?: string | null; cardSize?: "small" | "medium" | "large" }) {
-  const tab: Tab = wanted === "unsaved" || wanted === "gone" ? wanted : "deleted";
+  const tab: Tab = wanted === "gone" ? wanted : "deleted";
   const [page, setPage] = useState<{ total: number; items: LibraryItem[] } | null>(null);
   const [counts, setCounts] = useState<{ deleted: number; unsaved: number; gone: number } | null>(null);
   const [picked, setPicked] = useState<number[]>([]);
@@ -91,6 +82,23 @@ export default function ArchivePage({ tab: wanted = null, cardSize = "medium" }:
     if (sure) void bulk(ids, "purge", `Deleted ${ids.length} save${ids.length === 1 ? "" : "s"} for good.`);
   }
 
+  const [working, setWorking] = useState(false);
+  async function batch(action: "restore" | "purge" | "archive_unavailable") {
+    setWorking(true);
+    setError(null);
+    try {
+      const path = "/api/archive/batch/" + action;
+      const { count, token } = await api.get<{count: number; token: string}>(path);
+      const verb = action === "purge" ? "Delete permanently" : action === "restore" ? "Restore" : "Archive";
+      if (count && await ask.confirm({ title: verb + " " + count.toLocaleString() + " saves?",
+        body: action === "purge" ? "This removes their notes, transcripts and pictures. Future imports will skip them. This is permanent."
+          : "This includes every matching save for the selected platform, across all pages. You can undo this change.",
+        confirm: verb, danger: action === "purge" })) {
+        await api.post(path, { token }); setPicked([]); announceChange(); toast("Updated " + count.toLocaleString() + " saves.");
+      }
+    } catch (e) { setError(errorText(e)); } finally { setWorking(false); load(); }
+  }
+
   async function loadMore() {
     if (!page) return;
     try {
@@ -113,26 +121,15 @@ export default function ArchivePage({ tab: wanted = null, cardSize = "medium" }:
         { label: ids.length === 1 ? "Delete for good…" : `Delete ${many(ids)} for good…`, icon: icons.trash, danger: true, onSelect: () => void purge(ids) },
       ];
     }
-    if (tab === "gone") {
-      return [
-        ...open,
-        { label: ids.length === 1 ? "Archive in Keptwise" : `Archive ${many(ids)}`, icon: icons.trash, danger: true, hint: "in Keptwise", onSelect: () => void bulk(ids, "delete", `Archived ${many(ids)}.`, "restore") },
-      ];
-    }
     return [
       ...open,
-      { label: ids.length === 1 ? `Still saved on ${item.platform_name}` : `${many(ids)} are still saved`, icon: icons.back, onSelect: () => void bulk(ids, "still_saved", `Marked ${many(ids)} as still saved.`, "unsaved") },
-      ...(ids.length === 1
-        ? [{ label: `Open on ${item.platform_name}`, icon: icons.external, onSelect: () => void libraryApi.openInBrowser(item.id).catch((e) => setError(errorText(e))) } as MenuItem]
-        : []),
-      { kind: "divider" },
-      { label: ids.length === 1 ? "Archive in Keptwise" : `Archive ${many(ids)}`, icon: icons.trash, danger: true, hint: "in Keptwise", onSelect: () => void bulk(ids, "delete", `Archived ${many(ids)}.`, "restore") },
+      { label: ids.length === 1 ? "Archive in Keptwise" : `Archive ${many(ids)}`, icon: icons.archive,
+        onSelect: () => void bulk(ids, "delete", `Archived ${many(ids)}.`, "restore") },
     ];
   }
 
   const tabs: { id: Tab; label: string; count: number | undefined; href: string }[] = [
     { id: "deleted", label: "Archived", count: counts?.deleted, href: "#/archive" },
-    { id: "unsaved", label: "Marked unsaved", count: counts?.unsaved, href: "#/archive/unsaved" },
     { id: "gone", label: "Unavailable", count: counts?.gone, href: "#/archive/gone" },
   ];
 
@@ -141,7 +138,7 @@ export default function ArchivePage({ tab: wanted = null, cardSize = "medium" }:
       <header>
         <h1 className="text-2xl font-semibold tracking-tight" data-tour="archive">Archive</h1>
         <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-          Archiving moves a save within Keptwise. After you unsave something on TikTok or another platform, mark it in the Unsave checklist.
+          Archiving keeps your notes and collections. You can restore a save at any time before emptying the Archive.
         </p>
       </header>
 
@@ -169,11 +166,6 @@ export default function ArchivePage({ tab: wanted = null, cardSize = "medium" }:
           Saves you archived in Keptwise wait here. <b>Put back</b> returns one to the Library exactly as it was. <b>Delete for good</b> removes
           it completely, and it won't come back when you import again.
         </Tip>
-      ) : tab === "unsaved" ? (
-        <Tip id="archive-unsaved">
-          These are the saves you marked as unsaved on their platform. They're still in your Library with their notes; this list
-          is your record of what you cleared out. Mark one as <b>still saved</b> if that was a mistake.
-        </Tip>
       ) : (
         <Tip id="archive-gone">
           Keptwise marked these videos as unavailable. If they still play for you,{" "}
@@ -182,6 +174,12 @@ export default function ArchivePage({ tab: wanted = null, cardSize = "medium" }:
       )}
       {error && <Notice tone="error" onClose={() => setError(null)}>{error}</Notice>}
 
+      {page && page.total > 0 && <div className="flex flex-wrap gap-2">
+        {tab === "deleted" ? <>
+          <Button size="sm" variant="secondary" disabled={working} onClick={() => batch("restore")}>Restore all</Button>
+          <Button size="sm" variant="danger" disabled={working} onClick={() => batch("purge")}>Empty archive…</Button>
+        </> : <Button size="sm" variant="secondary" disabled={working} onClick={() => batch("archive_unavailable")}>Archive all unavailable…</Button>}
+      </div>}
       {picked.length > 0 && (
         <div role="toolbar" aria-label="Picked saves" className="sticky top-2 z-10 flex flex-wrap items-center gap-2 rounded-2xl border border-indigo-200 bg-indigo-50/95 px-4 py-2.5 text-sm shadow dark:border-indigo-900 dark:bg-indigo-950/90">
           <span className="font-medium">{picked.length} picked</span>
@@ -194,19 +192,10 @@ export default function ArchivePage({ tab: wanted = null, cardSize = "medium" }:
                 Delete for good…
               </Button>
             </>
-          ) : tab === "gone" ? (
+          ) : (
             <Button size="sm" variant="danger" onClick={() => void bulk(picked, "delete", `Archived ${many(picked)}.`, "restore")}>
               Archive
             </Button>
-          ) : (
-            <>
-              <Button size="sm" onClick={() => void bulk(picked, "still_saved", `Marked ${many(picked)} as still saved.`, "unsaved")}>
-                Still saved
-              </Button>
-              <Button size="sm" variant="danger" onClick={() => void bulk(picked, "delete", `Archived ${many(picked)}.`, "restore")}>
-                Archive
-              </Button>
-            </>
           )}
           <Button size="sm" variant="ghost" onClick={() => setPicked(items.map((i) => i.id))}>
             Pick all shown
@@ -220,18 +209,16 @@ export default function ArchivePage({ tab: wanted = null, cardSize = "medium" }:
       {page && items.length === 0 && (
         <EmptyState
           icon={icons.archive}
-          title={tab === "deleted" ? "Nothing archived" : tab === "gone" ? "No unavailable videos" : "Nothing unsaved yet"}
+          title={tab === "deleted" ? "Nothing archived" : "No unavailable videos"}
         >
           {tab === "deleted"
             ? "Choose Archive on a save to move it here. You can put it back later."
-            : tab === "gone"
-              ? "When the app finds a video was deleted on its platform, it moves here by itself."
-              : "When you unsave a video on its platform and tick it off on the Unsave page, it's listed here."}
+            : "Videos that can no longer be opened on their platform appear here."}
         </EmptyState>
       )}
       {items.length > 0 && (
         <>
-          <ul className={`grid ${GRID[cardSize]}`} aria-label={tab === "deleted" ? "Archived saves" : tab === "gone" ? "Unavailable saves" : "Saves marked unsaved"}>
+          <ul className={`grid ${GRID[cardSize]}`} aria-label={tab === "deleted" ? "Archived saves" : "Unavailable saves"}>
             {items.map((item, index) => (
               <li key={item.id} className="kw-pop flex" style={{ "--i": index } as CSSProperties}>
                 <LibraryCard

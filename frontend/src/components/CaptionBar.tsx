@@ -4,6 +4,11 @@ type Frame = { integrated: boolean; maximized: boolean; fullscreen: boolean };
 type Desktop = { info?: () => Promise<Frame>; caption?: (action: string) => Promise<void> };
 const desktop = () => (window as Window & { pywebview?: { api: Desktop } }).pywebview?.api;
 
+export function dragCaption(event: React.PointerEvent) {
+  if (event.target === event.currentTarget && event.button === 0 && event.detail <= 1) void desktop()?.caption?.("move");
+}
+export function maximizeCaption() { void desktop()?.caption?.("maximize"); }
+
 export default function CaptionBar() {
   const [frame, setFrame] = useState<Frame | null>(null);
   useEffect(() => {
@@ -28,15 +33,10 @@ export default function CaptionBar() {
   ];
 
   return (
-    <div className="flex w-full min-w-0 select-none items-stretch" aria-label="Window controls">
-      <div className="flex flex-1 items-center px-4 text-xs font-medium text-zinc-500 dark:text-zinc-300"
-        onPointerDown={(event) => { if (event.button === 0 && event.detail <= 1) command("move"); }}
-        onDoubleClick={() => command("maximize")}>
-        Keptwise
-      </div>
+    <div className="flex shrink-0 select-none items-stretch" aria-label="Window controls">
       {buttons.map(({ action, label, shape }) => (
         <button type="button" key={action} aria-label={label} title={label}
-          className={"grid h-9 w-11 place-items-center outline-offset-[-2px] focus-visible:outline-2 " +
+          className={"grid h-full w-10 place-items-center outline-offset-[-2px] focus-visible:outline-2 " +
             (action === "close" ? "hover:bg-red-600 hover:text-white" : "hover:bg-zinc-500/15")}
           onClick={() => command(action)}>
           <svg viewBox="0 0 14 14" width="14" height="14" fill="none" stroke="currentColor" aria-hidden="true">

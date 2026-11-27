@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import os
 import secrets
+import subprocess
 import socket
 import sys
 import threading
@@ -50,6 +51,7 @@ import webview  # noqa: E402
 from app import __version__  # noqa: E402
 from app.main import create_app  # noqa: E402
 import single_instance  # noqa: E402
+from workspaces import Workspaces
 import window_frame  # noqa: E402
 from window_icon import set_app_id, set_window_icon  # noqa: E402
 
@@ -136,6 +138,26 @@ class WindowControls:
         self._fullscreen_lock = threading.Lock()
         self._maximize_on_exit = False
         self._frame = None
+        self._spaces = None
+        self._services = None
+        self._reopen = False
+
+    def workspaces(self):
+        return self._spaces.list()
+
+    def create_workspace(self, name):
+        return self._spaces.create(name)
+
+    def open_workspace(self, key):
+        with self._fullscreen_lock:
+            if self._reopen or key == self._spaces.current:
+                return
+            with self._services.db.connect() as conn:
+                if conn.execute("SELECT 1 FROM jobs WHERE status IN ('queued','running','paused') LIMIT 1").fetchone():
+                    raise ValueError("Finish or cancel running jobs before switching workspace.")
+            self._spaces.choose(key)
+            self._reopen = True
+            self._window.destroy()
 
     def info(self) -> dict[str, bool]:
         native = getattr(self._window, "native", None)
@@ -224,21 +246,25 @@ def send_output_to_log(data_dir: Path | None) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    send_output_to_log(args.data_dir)
-    if not args.serve_only:
-        from app.paths import default_data_dir
+    from app.paths import default_data_dir
+    from app.ai.secrets import KeyringStore
+    from app.services import build_services
 
-        if not single_instance.claim(args.data_dir or default_data_dir()):
+    root = args.data_dir or default_data_dir()
+    if not args.serve_only:
+        if not single_instance.claim(root):
             # Already open: show that window instead of opening a second one.
             print("Keptwise is already open; bringing its window to the front.")
             single_instance.show_existing(WINDOW_TITLE)
             return 0
+    spaces = Workspaces(root)
+    send_output_to_log(spaces.directory)
     if FROZEN:
         from app.updater import clean_downloads
 
         clean_downloads()  # the installer of an update that has now finished
     token = args.token or secrets.token_urlsafe(32)
-    app = create_app(session_token=token, static_dir=FRONTEND_DIST, data_dir=args.data_dir)
+    app = create_app(session_token=token, static_dir=FRONTEND_DIST, app_services=build_services(spaces.directory, keys=KeyringStore(spaces.current)))
     services = app.state.services
     if args.serve_only:
         try:
@@ -246,6 +272,7 @@ def main(argv: list[str] | None = None) -> int:
         finally:
             services.shutdown()
 
+    controls = WindowControls()
     sock = open_local_socket()
     base_url = f"http://127.0.0.1:{sock.getsockname()[1]}"
     server = BackendServer(app, sock)
@@ -255,7 +282,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Keptwise {__version__} is running at {base_url}")
         # Let Windows manage resizing, moving and snapping.
         set_app_id()  # the taskbar shows Keptwise, not Python
-        controls = WindowControls()
+        controls._spaces = spaces
+        controls._services = services
         window = webview.create_window(
             WINDOW_TITLE,
             url=f"{base_url}/session/start?token={token}",
@@ -301,6 +329,9 @@ def main(argv: list[str] | None = None) -> int:
         server.stop()
         sock.close()
         single_instance.release()
+        if controls._reopen:
+            command = [sys.executable] if FROZEN else [sys.executable, str(Path(__file__).resolve())]
+            subprocess.Popen([*command, *sys.argv[1:]], env={**os.environ, "PYINSTALLER_RESET_ENVIRONMENT": "1"})
 
 
 if __name__ == "__main__":

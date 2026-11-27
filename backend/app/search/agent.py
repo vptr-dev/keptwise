@@ -41,7 +41,7 @@ ALLOWED = re.compile(
     r"|spaces|tags|items|plans|review|platform-collections|search|sorting/(resort|clear)|tags/ai|notes/start"
     r"|enrich/start|jobs|undo|redo)"
 )
-NOT_FOR_AI = re.compile(r"/thumbnail$|/search/(status|index)$|\.csv$|/export$|/open-folder$|/open$|/dismiss-notice$")
+NOT_FOR_AI = re.compile(r"/archive/batch/|/thumbnail$|/search/(status|index)$|\.csv$|/export$|/open-folder$|/open$|/dismiss-notice$")
 BIG_PATHS = re.compile(r"/merge$|/tags/delete$|/collections/bulk$|/platform-collections(?:/(apply|transfer|default))?$|/sorting/(resort|clear)$"
                        r"|/review/accept-all$|/unsave/clear$")
 BIG_BULK = {"delete", "purge", "move_to", "remove_from", "unsaved"}

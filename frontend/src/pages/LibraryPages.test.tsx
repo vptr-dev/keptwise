@@ -176,7 +176,7 @@ test("a plan ticks saves off, opens their steps, reorders and adds saves", async
   await vi.waitFor(() => expect(calls.find((c) => c.url === "/api/plans/4/order")?.body).toEqual({ item_ids: [2, 1] }));
 
   fireEvent.click(screen.getByRole("button", { name: /Add saves/ }));
-  fireEvent.click(await screen.findByLabelText(/Pastel de nata/));
+  fireEvent.click(await screen.findByRole("checkbox", { name: /Pastel de nata/ }));
   fireEvent.click(screen.getByRole("button", { name: "Add 1" }));
   await vi.waitFor(() => expect(calls.find((c) => c.url === "/api/plans/4/items")?.body).toEqual({ item_ids: [3] }));
 });
@@ -414,7 +414,7 @@ test("the Archive: put a deleted save back, or delete it for good after asking",
   render(<ArchivePage />);
   expect(await screen.findByText("Old recipe")).toBeInTheDocument();
   expect(calls.find((c) => c.url.startsWith("/api/library/items"))?.url).toContain("archive=deleted");
-  expect(screen.getByRole("tab", { name: /Marked unsaved/ })).toHaveTextContent("4");
+  expect(screen.queryByRole("tab", { name: /Marked unsaved/ })).toBeNull();
 
   fireEvent.contextMenu(screen.getByTestId("library-5"), { clientX: 10, clientY: 10 });
   fireEvent.click(within(await screen.findByRole("menu")).getByRole("menuitem", { name: "Put back in the Library" }));
@@ -428,19 +428,19 @@ test("the Archive: put a deleted save back, or delete it for good after asking",
   await vi.waitFor(() => expect(calls.filter((c) => c.url === "/api/items/bulk")[1]?.body).toEqual({ item_ids: [5], action: "purge" }));
 });
 
-test("the Archive lists what you've unsaved, and one can be marked as still saved", async () => {
-  const cleared = libraryItem({ id: 6, title: "Tram tour", unsaved: true, unsaved_at: "2026-11-15T10:00:00Z" });
+test("emptying the Archive confirms the full count before sending the preview token", async () => {
   const calls = fakeBackend({
-    "GET /api/library/items": { total: 1, offset: 0, items: [cleared] },
-    "GET /api/archive": { deleted: 0, unsaved: 1 },
-    "POST /api/items/bulk": { changed: 1, items: [] },
+    "GET /api/library/items": { total: 150, items: [libraryItem({id: 5, deleted: true})] },
+    "GET /api/archive": {deleted: 150, gone: 0},
+    "GET /api/archive/batch/purge": {count: 150, token: "preview"},
+    "POST /api/archive/batch/purge": {count: 150},
   });
-  render(<ArchivePage tab="unsaved" />);
-  expect(await screen.findByText("Tram tour")).toBeInTheDocument();
-  expect(calls.find((c) => c.url.startsWith("/api/library/items"))?.url).toContain("archive=unsaved");
-  fireEvent.contextMenu(screen.getByTestId("library-6"), { clientX: 10, clientY: 10 });
-  fireEvent.click(within(await screen.findByRole("menu")).getByRole("menuitem", { name: "Still saved on TikTok" }));
-  await vi.waitFor(() => expect(calls.find((c) => c.url === "/api/items/bulk")?.body).toEqual({ item_ids: [6], action: "still_saved" }));
+  render(<ArchivePage />);
+  fireEvent.click(await screen.findByRole("button", {name: "Empty archive…"}));
+  const dialog = await screen.findByRole("dialog", {name: "Delete permanently 150 saves?"});
+  expect(calls.some(c => c.method === "POST")).toBe(false);
+  fireEvent.click(within(dialog).getByRole("button", {name: "Delete permanently"}));
+  await vi.waitFor(() => expect(calls.find(c => c.method === "POST")?.body).toEqual({token: "preview"}));
 });
 
 test("a save's picture shows the greyed logo until it loads, and again if it can't load", () => {

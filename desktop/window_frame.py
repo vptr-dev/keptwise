@@ -36,9 +36,17 @@ def install(window: Any) -> Any:
             dpi = user.GetDpiForWindow(hwnd) or 96
             border = user.GetSystemMetricsForDpi(33, dpi) + user.GetSystemMetricsForDpi(92, dpi)
             # Keep native resize borders and maximized work-area insets on every edge.
-            rect.top = min(rect.top, outer_top + border)
+            rect.top = min(rect.top, outer_top + border) if user.IsZoomed(HWND(hwnd)) else outer_top
             return result
         result = control.DefSubclassProc(hwnd, message, wparam, lparam)
+        if message == 0x0084 and caption and not user.IsZoomed(HWND(hwnd)):
+            bounds = RECT()
+            user.GetWindowRect(HWND(hwnd), ctypes.byref(bounds))
+            x = ctypes.c_short(lparam & 0xffff).value
+            y = ctypes.c_short((lparam >> 16) & 0xffff).value
+            grip = max(4, round(5 * (user.GetDpiForWindow(hwnd) or 96) / 96))
+            if bounds.top <= y < bounds.top + grip:
+                return 13 if x < bounds.left + grip else 14 if x >= bounds.right - grip else 12
         if message == 0x0084 and caption and result in (2, 3, 5, 8, 9, 20):  # WM_NCHITTEST
             return 1  # HTCLIENT for the caption and buttons now drawn by Keptwise
         return result

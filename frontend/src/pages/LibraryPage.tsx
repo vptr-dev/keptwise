@@ -372,7 +372,7 @@ export default function LibraryPage({
               cardActions && (
                 <div className="mb-4">
                   <Tip id="library-quick-actions">
-                    Point at a save to tag it, put it in a collection, add it to a plan or unsave it, without opening it.
+                    Point at a save to tag it, put it in a collection, add it to a plan or archive it, without opening it.
                     Tick its box (or Ctrl-click, Shift-click) to pick several. Right-click for everything else, like
                     asking the AI about the ones you picked.
                   </Tip>

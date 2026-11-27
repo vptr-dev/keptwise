@@ -5,6 +5,7 @@
 //   #  tags          /  collections      @  creators
 //   >  things to do  ?  ask the AI Assistant
 // Up/Down choose, Enter opens, Esc closes.
+import { SaveControls } from "../library/SaveControls";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -186,6 +187,7 @@ export default function CommandPalette({ actions, onClose }: { actions: CommandA
   }
 
   function onKey(event: React.KeyboardEvent) {
+    if (event.key === "Enter" && event.target instanceof HTMLButtonElement) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setAt(rows.length ? (chosen + 1) % rows.length : 0);
@@ -266,7 +268,7 @@ export default function CommandPalette({ actions, onClose }: { actions: CommandA
                   aria-selected={active}
                   onMouseMove={() => index !== chosen && setAt(index)}
                   onClick={() => run(row)}
-                  className={`flex cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-sm transition-colors ${
+                  className={`group flex cursor-pointer items-center gap-3 rounded-lg px-2.5 py-2 text-sm transition-colors ${
                     active ? "bg-indigo-600 text-white" : "text-zinc-800 dark:text-zinc-200"
                   }`}
                 >
@@ -276,6 +278,9 @@ export default function CommandPalette({ actions, onClose }: { actions: CommandA
                     <span className={`h-4 w-4 shrink-0 ${active ? "" : "text-zinc-500"}`}>{row.icon}</span>
                   )}
                   <span className="min-w-0 flex-1 truncate">{row.label}</span>
+                  {row.item && <SaveControls id={row.item.id} title={row.label} onChange={changed => {
+                    setSaves(old => old && {...old, items: old.items.filter(i => i.id !== changed.id), total: Math.max(0, old.total - 1)});
+                  }} />}
                   {row.hint && <span className={`shrink-0 text-xs ${active ? "opacity-80" : "text-zinc-500"}`}>{row.hint}</span>}
                 </div>
               </div>

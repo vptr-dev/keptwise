@@ -18,5 +18,5 @@ export const CHAPTERS = [
   { path: "/unsave", target: "unsave", title: "Work through the Unsave list",
     text: "Tick a video after you unsave it on its platform. Clear checklist starts the list fresh." },
   { path: "/archive", target: "archive", title: "Find archived and unavailable saves",
-    text: "Use the tabs to see what you archived, what you marked unsaved, and links that are unavailable." },
+    text: "Use the tabs to see archived saves and unavailable links." },
 ] as const;

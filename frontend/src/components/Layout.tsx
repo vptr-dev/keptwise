@@ -5,7 +5,8 @@
 import { useEffect, useState, type DragEvent, type ReactNode } from "react";
 
 import Logo from "./Logo";
-import CaptionBar from "./CaptionBar";
+import { WorkspaceLink } from "./WorkspaceSettings";
+import CaptionBar, { dragCaption, maximizeCaption } from "./CaptionBar";
 import { NAV_DRAG } from "../features/organize/organizeApi";
 import { movedNav } from "../features/organize/tree";
 import { THEME_LABELS, type ThemeChoice } from "../lib/theme";
@@ -105,7 +106,6 @@ export default function Layout({
 
   return (
     <div className="flex h-screen flex-col text-zinc-900 dark:text-zinc-100">
-      <CaptionBar />
       <div className="flex min-h-0 flex-1">
       <aside
         className={`kw-glass flex shrink-0 flex-col border-r border-zinc-200 bg-white transition-[width] dark:border-zinc-800 dark:bg-zinc-900 ${
@@ -137,6 +137,7 @@ export default function Layout({
             </button>
           </div>
         )}
+        <WorkspaceLink compact={!!compact} />
         {picker && <div className={`pb-2 ${compact ? "px-2" : "px-3"}`}>{picker}</div>}
         <div
           className={`kw-quiet-scroll flex-1 overflow-y-auto pt-1 ${compact ? "px-2" : "px-3"}`}
@@ -255,9 +256,10 @@ export default function Layout({
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
         {(topBar || actions) && (
-          <header className="flex h-10 shrink-0 items-stretch gap-3 pl-4 pr-3">
-            <div className="min-w-0 flex-1 self-center">{topBar}</div>
+          <header className="flex h-10 shrink-0 items-stretch gap-1 pl-4" onPointerDown={dragCaption}>
+            <div className="min-w-0 flex-1" onPointerDown={dragCaption} onDoubleClick={maximizeCaption}>{topBar}</div>
             {actions}
+            <CaptionBar />
           </header>
         )}
         <main className="min-w-0 flex-1 overflow-y-auto">{children}</main>

@@ -1,7 +1,7 @@
 // The bar at the bottom of the Library while saves are selected: put them
 // all in a collection, move them, tag or untag them, add them to a plan,
 // let the AI tag or sort them, or mark them done.
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { toast } from "../../components/Toasts";
 import { Button } from "../../components/ui";
@@ -21,6 +21,8 @@ export default function BulkBar({
   onClear,
   onSelectAll,
   allSelected,
+  unsorted = false,
+  extraActions,
 }: {
   ids: number[];
   shownIn: number | null; // the collection the Library is filtered to, if any
@@ -28,6 +30,8 @@ export default function BulkBar({
   onClear: () => void;
   onSelectAll: () => void;
   allSelected: boolean;
+  unsorted?: boolean;
+  extraActions?: ReactNode;
 }) {
   const [collections, setCollections] = useState<Collection[]>([]);
   const [tag, setTag] = useState("");
@@ -103,13 +107,13 @@ export default function BulkBar({
       </Button>
       <span className="mx-1 h-5 w-px bg-zinc-200 dark:bg-zinc-700" aria-hidden="true" />
       <select
-        aria-label="Add the selected saves to a collection"
+        aria-label={unsorted ? "Move the selected saves into a collection" : "Add the selected saves to a collection"}
         className={selectClass}
         value=""
         disabled={busy || ids.length === 0}
-        onChange={(e) => e.target.value && void run({ action: "add_to", collection_id: Number(e.target.value) }, "Added")}
+        onChange={(e) => e.target.value && void run({ action: "add_to", collection_id: Number(e.target.value) }, unsorted ? "Moved" : "Added")}
       >
-        <option value="">Add to…</option>
+        <option value="">{unsorted ? "Move to…" : "Add to…"}</option>
         {options}
       </select>
       {shownIn !== null && (
@@ -131,6 +135,7 @@ export default function BulkBar({
           </Button>
         </>
       )}
+      {extraActions}
       <form className="flex items-center gap-1" onSubmit={(e) => tagSubmit(e, "add_tag")}>
         <input
           value={tag}

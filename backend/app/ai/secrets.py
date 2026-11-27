@@ -23,25 +23,29 @@ class KeyStore(Protocol):
 class KeyringStore:
     """The real store: Windows Credential Manager via keyring."""
 
+    def __init__(self, workspace: str = "default"):
+        self.service = SERVICE_NAME if workspace == "default" else f"{SERVICE_NAME}.{workspace}"
+
     def get(self, provider_id: str) -> str | None:
         import keyring
 
-        key = keyring.get_password(SERVICE_NAME, provider_id)
-        if key is None:
+        key = keyring.get_password(self.service, provider_id)
+        if key is None and self.service == SERVICE_NAME:
             key = keyring.get_password(OLD_SERVICE_NAME, provider_id)
             if key is not None:  # saved by an older version: move it to the new name
-                keyring.set_password(SERVICE_NAME, provider_id, key)
+                keyring.set_password(self.service, provider_id, key)
                 self._delete(OLD_SERVICE_NAME, provider_id)
         return key
 
     def set(self, provider_id: str, key: str) -> None:
         import keyring
 
-        keyring.set_password(SERVICE_NAME, provider_id, key)
+        keyring.set_password(self.service, provider_id, key)
 
     def delete(self, provider_id: str) -> None:
-        self._delete(SERVICE_NAME, provider_id)
-        self._delete(OLD_SERVICE_NAME, provider_id)
+        self._delete(self.service, provider_id)
+        if self.service == SERVICE_NAME:
+            self._delete(OLD_SERVICE_NAME, provider_id)
 
     @staticmethod
     def _delete(service: str, provider_id: str) -> None:

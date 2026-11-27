@@ -3,6 +3,7 @@
 // With the mouse over it, quick buttons tag it, file it, add it to a plan
 // or unsave it. Right-click (or the menu key) shows every action. While
 // selecting, a click ticks it instead (Shift-click ticks a whole run).
+import { SaveControls } from "./SaveControls";
 import { useState, type DragEvent, type MouseEvent } from "react";
 
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu";
@@ -99,17 +100,20 @@ export default function LibraryCard({
               event.stopPropagation();
               onSelect(event);
             }}
-            className={`absolute left-2 top-2 flex h-6 w-6 items-center justify-center rounded-md border-2 p-0.5 shadow transition ${
+            className={`absolute left-2 top-2 flex h-8 w-8 items-center justify-center rounded-md border-2 p-0.5 shadow transition ${
               selected
                 ? "border-indigo-600 bg-indigo-600 text-white"
-                : `border-white bg-black/30 text-transparent hover:bg-black/50 hover:text-white ${
-                    selecting || hover ? "opacity-100" : "opacity-0 group-focus-within:opacity-100"
+                : `border-white bg-black/50 text-white hover:bg-black/50 hover:text-white ${
+                    selecting || hover ? "opacity-100" : "opacity-0 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
                   }`
             }`}
           >
-            {icons.check}
+            {selected ? icons.check : icons.select}
           </button>
         )}
+        {!selecting && (onChange || item.gone || item.deleted) && <span className="absolute bottom-2 right-2">
+          <SaveControls id={item.id} title={displayTitle(item)} archived={item.deleted} select={false} onChange={onChange} />
+        </span>}
         {item.done && (
           <span
             title="Done"

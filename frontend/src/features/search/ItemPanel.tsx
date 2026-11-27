@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Badge, Notice } from "../../components/ui";
 import { errorText } from "../../lib/api";
 import { formatDuration } from "../enrich/enrichApi";
+import { SaveControls } from "../library/SaveControls";
 import Highlighted from "./Highlighted";
 import { markWords, searchApi, type ItemDetails } from "./searchApi";
 
@@ -45,7 +46,7 @@ export default function ItemPanel({
         className="flex h-full w-full max-w-xl flex-col overflow-y-auto bg-white shadow-xl dark:bg-zinc-900"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="sticky top-0 flex items-start gap-3 border-b border-zinc-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="group sticky top-0 flex items-start gap-3 border-b border-zinc-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900">
           <div className="min-w-0 flex-1">
             <h2 className="text-lg font-semibold leading-snug">{item?.title ?? (error ? "Couldn't open it" : "Loading…")}</h2>
             {item && (
@@ -61,6 +62,7 @@ export default function ItemPanel({
               </a>
             )}
           </div>
+          {item && <SaveControls id={item.id} title={item.title ?? item.url} archived={item.deleted} onChange={changed => setDetails(old => old && {...old, item: changed})} />}
           <button
             ref={closeRef}
             type="button"

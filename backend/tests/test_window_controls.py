@@ -34,9 +34,9 @@ def test_fullscreen_restores_a_maximized_window_to_maximized() -> None:
     assert [call[0] for call in window.method_calls] == ["restore", "toggle_fullscreen", "toggle_fullscreen", "maximize"]
 
 
-def test_fullscreen_is_the_only_window_action_exposed_to_the_page() -> None:
+def test_bridge_exposes_only_window_and_workspace_controls() -> None:
     public = {name for name in dir(WindowControls) if not name.startswith("_") and callable(getattr(WindowControls, name))}
-    assert public == {"toggle_fullscreen", "info", "caption"}
+    assert public == {"toggle_fullscreen", "info", "caption", "workspaces", "create_workspace", "open_workspace"}
 
 
 def test_the_taskbar_icon_is_the_plain_white_logo_with_no_tile() -> None:

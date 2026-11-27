@@ -1,5 +1,6 @@
 // The videos processed most recently: thumbnail, details, how long it took,
 // and the start of the transcript (or why there isn't one).
+import { SaveControls } from "../library/SaveControls";
 import { Badge, Card } from "../../components/ui";
 import { formatDuration, type RecentVideo } from "./enrichApi";
 
@@ -23,7 +24,7 @@ function VideoRow({ video }: { video: RecentVideo }) {
   const duration = formatDuration(video.duration_s);
   const failed = video.status === "failed";
   return (
-    <Card className="flex gap-4 p-4">
+    <Card className="group flex gap-4 p-4">
       <div className="h-24 w-16 shrink-0 overflow-hidden rounded-lg bg-zinc-100 dark:bg-zinc-800">
         {video.has_thumbnail && (
           <img src={`/api/items/${video.id}/thumbnail`} alt="" className="h-full w-full object-cover" loading="lazy" />
@@ -31,6 +32,7 @@ function VideoRow({ video }: { video: RecentVideo }) {
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
+      <SaveControls id={video.id} title={video.title ?? video.url} />
           <StatusBadge video={video} />
           <span className="text-xs text-zinc-500 dark:text-zinc-400">
             {[video.platform_name, video.author ? `@${video.author.replace(/^@/, "")}` : null, duration]

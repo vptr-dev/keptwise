@@ -2,15 +2,19 @@
 // shows where the AI thinks it goes; one click accepts that, or pick another
 // collection yourself. The AI's suggested tags wait here too. Shown on the
 // Sort page and in Collections -> Unsorted.
-import { useCallback, useEffect, useState } from "react";
+import { SaveControls } from "../library/SaveControls";
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
 
+import { useDialog } from "../../components/Dialog";
+import JobCard from "../../components/JobCard";
 import { Button, Notice } from "../../components/ui";
 import { toast } from "../../components/Toasts";
 import { icons } from "../../components/icons";
-import { errorText } from "../../lib/api";
-import { isActive, onJobUpdate } from "../../lib/jobs";
+import { errorCode, errorText } from "../../lib/api";
+import { isActive, onJobUpdate, useJobs, type Job } from "../../lib/jobs";
 import { displayTitle } from "../library/libraryApi";
 import Thumb from "../library/Thumb";
+import BulkBar from "../organize/BulkBar";
 import CollectionPicker from "../organize/CollectionPicker";
 import FolderIcon from "../organize/FolderIcon";
 import { announceChange, onOrganizeChange } from "../organize/organizeApi";
@@ -24,12 +28,22 @@ export default function Unsorted({ limit, onCount }: { limit?: number; onCount?:
   const [all, setAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [selecting, setSelecting] = useState(false);
+  const [picked, setPicked] = useState<number[]>([]);
+  const anchor = useRef<number | null>(null);
+  const [resorting, setResorting] = useState(false);
+  const [started, setStarted] = useState<Job | null>(null);
+  const jobs = useJobs();
+  const job = jobs.find((entry) => entry.id === started?.id) ?? started;
+  const [ask, dialog] = useDialog();
 
   const load = useCallback(() => {
     sortingApi
       .library({ type: "unsorted" })
       .then((list) => {
         setItems(list);
+        const remaining = new Set(list.map(item => item.id));
+        setPicked(previous => previous.filter(id => remaining.has(id)));
         onCount?.(list.length);
       })
       .catch((e) => setError(errorText(e)));
@@ -63,6 +77,49 @@ export default function Unsorted({ limit, onCount }: { limit?: number; onCount?:
   const withIdea = list.filter((item) => suggestionOf(item, collections)).length;
   const shown = limit && !all ? list.slice(0, limit) : list;
 
+  const visibleIds = shown.map((item) => item.id);
+  const selected = picked.filter((id) => visibleIds.includes(id));
+  const showSelection = selecting || selected.length > 0;
+
+  function clearSelection() {
+    setSelecting(false);
+    setPicked([]);
+    anchor.current = null;
+  }
+
+  function pick(id: number, event: MouseEvent) {
+    const start = anchor.current === null ? -1 : visibleIds.indexOf(anchor.current);
+    anchor.current = id;
+    const end = visibleIds.indexOf(id);
+    if (event.shiftKey && start >= 0) {
+      setPicked([...new Set([...selected, ...visibleIds.slice(Math.min(start, end), Math.max(start, end) + 1)])]);
+    } else {
+      setPicked(selected.includes(id) ? selected.filter((key) => key !== id) : [...selected, id]);
+    }
+  }
+
+  async function resort() {
+    if (!selected.length) return;
+    const ids = selected;
+    setResorting(true);
+    setError(null);
+    const start = (confirm = false) => sortingApi.resort("unsorted", true, confirm, ids);
+    try {
+      try {
+        setStarted(await start());
+      } catch (e) {
+        if (errorCode(e) !== "confirm_cost") throw e;
+        if (await ask.confirm({ title: "Use cloud AI to re-sort?", body: errorText(e), confirm: "Re-sort" })) {
+          setStarted(await start(true));
+        }
+      }
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setResorting(false);
+    }
+  }
+
   async function acceptAll() {
     setBusy(true);
     try {
@@ -77,7 +134,19 @@ export default function Unsorted({ limit, onCount }: { limit?: number; onCount?:
   }
 
   return (
-    <section className="space-y-3" aria-label="Unsorted">
+    <section className="space-y-3" aria-label="Unsorted" onKeyDown={(event) => {
+      if (!showSelection || event.defaultPrevented ||
+          (event.target as HTMLElement).closest("input, textarea, select, [contenteditable], [role=dialog]")) return;
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        clearSelection();
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") {
+        event.preventDefault();
+        event.stopPropagation();
+        setPicked(visibleIds);
+      }
+    }}>
+      {dialog}
       <div className="flex flex-wrap items-center gap-3">
         <p className="text-sm text-zinc-600 dark:text-zinc-400">
           {items === null
@@ -86,8 +155,14 @@ export default function Unsorted({ limit, onCount }: { limit?: number; onCount?:
               ? "Every save with notes is in a collection."
               : `${list.length.toLocaleString()} save${list.length === 1 ? " isn't" : "s aren't"} in a collection yet.`}
         </p>
-        {withIdea > 1 && (
-          <Button size="sm" className="ml-auto" disabled={busy} onClick={() => void acceptAll()}>
+        {shown.length > 0 && (
+          <Button size="sm" variant="secondary" className="ml-auto" onClick={() => {
+            if (showSelection) clearSelection();
+            else setSelecting(true);
+          }}>{showSelection ? "Stop selecting" : "Select"}</Button>
+        )}
+        {withIdea > 1 && !showSelection && (
+          <Button size="sm" disabled={busy} onClick={() => void acceptAll()}>
             <span className="h-4 w-4">{icons.check}</span>
             Accept all {withIdea.toLocaleString()} suggestions
           </Button>
@@ -104,6 +179,9 @@ export default function Unsorted({ limit, onCount }: { limit?: number; onCount?:
             <Row
               key={item.id}
               item={item}
+              selecting={showSelection}
+              selected={selected.includes(item.id)}
+              onPick={(event) => pick(item.id, event)}
               collections={collections}
               spaces={spaces}
               onAccept={(collectionId) => act(() => sortingApi.accept(item.id, collectionId))}
@@ -118,10 +196,18 @@ export default function Unsorted({ limit, onCount }: { limit?: number; onCount?:
         </ul>
       )}
       {limit !== undefined && list.length > limit && (
-        <Button variant="secondary" size="sm" onClick={() => setAll(!all)}>
+        <Button variant="secondary" size="sm" onClick={() => { clearSelection(); setAll(!all); }}>
           {all ? "Show fewer" : `Show all ${list.length.toLocaleString()}`}
         </Button>
       )}
+      {showSelection && shown.length > 0 && (
+        <BulkBar ids={selected} shownIn={null} unsorted onDone={load} onClear={clearSelection}
+          onSelectAll={() => setPicked(visibleIds)} allSelected={selected.length === visibleIds.length}
+          extraActions={<Button size="sm" variant="secondary"
+            disabled={resorting || selected.length === 0 || jobs.some((entry) => entry.kind === "sort" && isActive(entry)) || (!!job && isActive(job))}
+            onClick={() => void resort()}>Re-sort selected</Button>} />
+      )}
+      {job && <JobCard job={job} name="AI suggestions" />}
     </section>
   );
 }
@@ -137,12 +223,18 @@ export function suggestionOf(item: ItemCard, collections: Collection[]) {
 
 function Row({
   item,
+  selecting,
+  selected,
+  onPick,
   collections,
   spaces,
   onAccept,
   onTags,
 }: {
   item: ItemCard;
+  selecting: boolean;
+  selected: boolean;
+  onPick: (event: MouseEvent) => void;
   collections: Collection[];
   spaces: Space[];
   onAccept: (collectionId?: number) => void;
@@ -150,10 +242,29 @@ function Row({
 }) {
   const idea = suggestionOf(item, collections);
   return (
-    <li className="flex gap-3 px-4 py-3" data-testid={`unsorted-${item.id}`}>
+    <li className={`group flex gap-3 px-4 py-3 ${selected ? "bg-indigo-50 dark:bg-indigo-950/40" : ""}`}
+      data-testid={`unsorted-${item.id}`} onClick={(event) => {
+        if ((event.target as Element).closest("button, input, select, a")) return;
+        if (selecting || event.shiftKey || event.ctrlKey || event.metaKey) {
+          event.currentTarget.querySelector("button")?.focus();
+          onPick(event);
+        }
+      }}>
+      <button type="button" role="checkbox" aria-checked={selected} aria-label={`Select ${displayTitle(item)}`}
+        title="Select (Ctrl+click also works, Shift+click selects a range)"
+        className={`h-8 w-8 shrink-0 rounded-lg border p-1.5 focus-visible:opacity-100 ${
+          selected ? "border-indigo-600 bg-indigo-600 text-white" : "border-zinc-300 dark:border-zinc-600"
+        } ${selecting ? "" : "opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100"}`}
+        onClick={onPick}>{selected ? icons.check : icons.select}</button>
+      {!selecting && <SaveControls id={item.id} title={displayTitle(item)} select={false} />}
       <Thumb item={item} showDuration={false} className="h-16 w-12 shrink-0 rounded-lg" />
       <div className="min-w-0 flex-1 space-y-1.5">
-        <a href={`#/item/${item.id}`} className="block truncate text-sm font-medium hover:underline">
+        <a href={`#/item/${item.id}`} onClick={(event) => {
+          if (selecting || event.shiftKey || event.ctrlKey || event.metaKey) {
+            event.preventDefault();
+            onPick(event);
+          }
+        }} className="block truncate text-sm font-medium hover:underline">
           {displayTitle(item)}
         </a>
         {item.summary && <p className="line-clamp-1 text-xs text-zinc-500 dark:text-zinc-400">{item.summary}</p>}

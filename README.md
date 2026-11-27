@@ -8,6 +8,8 @@ It runs on your PC with no Keptwise account or tracking. A free local AI can wor
 
 ## Features
 
+- **Workspaces** keep separate libraries, settings, chats and provider keys on the same PC. Your existing library is in Personal. Click the workspace name in the sidebar to create or switch workspaces.
+- **Archive** holds saves you put away. Hover over a save to select or archive it. Restore archived saves individually or in bulk, or empty the Archive for the selected platform.
 - **Import** the data export from each platform (just drag the zip in). Importing again only adds new saves.
 - **Transcripts** made on your PC with Whisper. In **Sort**, retry videos with no detected speech, retry failed downloads, or recheck videos marked unavailable. Open a save to retry it on its own.
 - **Notes**: a summary, key details and next steps for every save.

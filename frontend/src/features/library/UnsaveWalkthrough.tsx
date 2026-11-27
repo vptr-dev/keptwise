@@ -1,6 +1,7 @@
 // "Unsave one by one": opens each save in the user's normal browser, where
 // they press the save/bookmark button themselves; then one click ticks it off
 // here and opens the next. Keptwise never logs in to or changes the platform.
+import { SaveControls } from "./SaveControls";
 import { useState } from "react";
 
 import ProgressBar from "../../components/ProgressBar";
@@ -78,7 +79,8 @@ export default function UnsaveWalkthrough({
 
       {item ? (
         <>
-          <div className="mt-4 flex items-center gap-3">
+          <div className="group mt-4 flex items-center gap-3">
+            <SaveControls id={item.id} title={displayTitle(item)} archived={item.deleted} />
             <Thumb item={item} showDuration={false} className="h-16 w-12 shrink-0 rounded-lg" />
             <div className="min-w-0 flex-1">
               <p className="truncate font-medium">{displayTitle(item)}</p>

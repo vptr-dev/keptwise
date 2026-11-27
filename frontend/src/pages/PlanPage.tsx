@@ -3,6 +3,7 @@
 // things off as you go; a save's steps tick inside it. Each save can carry a
 // note for this plan. "All steps" shows every step of every save as one
 // checklist. Right-click a save for everything else.
+import { onArchiveChange, SaveControls } from "../features/library/SaveControls";
 import { useEffect, useState, type FormEvent } from "react";
 
 import { useContextMenu, type MenuItem } from "../components/ContextMenu";
@@ -37,7 +38,7 @@ export default function PlanPage({ planId }: { planId: number }) {
   const [openMenu, menu] = useContextMenu();
 
   useEffect(() => {
-    plansApi
+    const refresh = () => plansApi
       .get(planId)
       .then((p) => {
         setPlan(p);
@@ -47,6 +48,8 @@ export default function PlanPage({ planId }: { planId: number }) {
         if ((e as { status?: number }).status === 404) setMissing(true);
         else setError(errorText(e));
       });
+    void refresh();
+    return onArchiveChange(refresh);
   }, [planId]);
 
   async function act(task: () => Promise<PlanDetails>) {
@@ -457,7 +460,8 @@ function AllSteps({ plan, onItem }: { plan: PlanDetails; onItem: (item: LibraryI
   return (
     <div className="space-y-5" aria-label="All steps">
       {withSteps.map((entry) => (
-        <section key={entry.item.id} className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+        <section key={entry.item.id} className="group rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+          <SaveControls id={entry.item.id} title={displayTitle(entry.item)} archived={entry.item.deleted} onChange={onItem} />
           <a href={`#/item/${entry.item.id}`} className="text-sm font-medium hover:text-indigo-600 dark:hover:text-indigo-400">
             {displayTitle(entry.item)}
           </a>
@@ -530,7 +534,7 @@ function EntryRow({
     "flex h-7 w-7 items-center justify-center rounded-md p-1.5 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-30 dark:hover:bg-zinc-800 dark:hover:text-zinc-200";
   return (
     <li
-      className={`rounded-2xl border bg-white p-3 shadow-sm dark:bg-zinc-900 ${entry.done ? "border-emerald-200 dark:border-emerald-900" : "border-zinc-200 dark:border-zinc-800"}`}
+      className={`group rounded-2xl border bg-white p-3 shadow-sm dark:bg-zinc-900 ${entry.done ? "border-emerald-200 dark:border-emerald-900" : "border-zinc-200 dark:border-zinc-800"}`}
       onContextMenu={(event) => openMenu(event, saveMenuItems(item, { onChange: onItem, ask, extra: planItems }), displayTitle(item))}
     >
       {menu}
@@ -560,6 +564,7 @@ function EntryRow({
             {entry.note ? `Note: ${entry.note}` : "Add a note"}
           </button>
         </div>
+      <SaveControls id={item.id} title={item.title ?? item.url} archived={item.deleted} onChange={onItem} />
         {total > 0 && (
           <Button size="sm" variant="ghost" onClick={() => setOpen(!open)} aria-expanded={open}>
             {open ? "Hide steps" : "Steps"}
@@ -631,13 +636,17 @@ function AddSaves({ planIds, onAdd }: { planIds: number[]; onAdd: (ids: number[]
         {results === null && <li className="text-sm text-zinc-500">Loading…</li>}
         {results !== null && list.length === 0 && <li className="text-sm text-zinc-500">Nothing found.</li>}
         {list.map((item) => (
-          <li key={item.id}>
-            <label className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-white dark:hover:bg-zinc-900">
+          <li key={item.id} className="group flex items-center">
+            <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 hover:bg-white dark:hover:bg-zinc-900">
               <input type="checkbox" checked={picked.includes(item.id)} onChange={() => toggle(item.id)} />
               <Thumb item={item} showDuration={false} className="h-10 w-8 shrink-0 rounded" />
               <span className="min-w-0 flex-1 truncate text-sm">{displayTitle(item)}</span>
               <span className="text-xs text-zinc-500">{item.kind_label ?? item.platform_name}</span>
             </label>
+            <SaveControls id={item.id} title={displayTitle(item)} select={false} onChange={() => {
+              setResults(old => old?.filter(row => row.id !== item.id) ?? null);
+              setPicked(old => old.filter(id => id !== item.id));
+            }} />
           </li>
         ))}
       </ul>

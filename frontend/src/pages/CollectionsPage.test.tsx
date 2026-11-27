@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, expect, test, vi } from "vitest";
 
 import SortingSettings, { CollectionSortOptions } from "../features/sorting/SortingSettings";
-import { FakeEventSource, fakeBackend } from "../test/fakeBackend";
+import { FakeEventSource, fakeBackend, httpError } from "../test/fakeBackend";
 import { libraryItem } from "../test/libraryItem";
 import CollectionsPage from "./CollectionsPage";
 
@@ -322,6 +322,36 @@ test("Unsorted: accept where the AI thinks a save goes, or choose another", asyn
   // The old Needs review address lands here too.
   render(<CollectionsPage selection="review" />);
   expect((await screen.findAllByRole("heading", { name: "Unsorted" })).length).toBe(2);
+});
+
+test("Unsorted selects ranges and sends only the selected saves to bulk actions", async () => {
+  const rows = [13, 14, 15, 16].map(id => card({ id, title: "Video " + id, collections: [] }));
+  const calls = fakeBackend(base({
+    "GET /api/library?view=unsorted": rows,
+    "POST /api/items/bulk": { changed: 4, skipped_full: 0, items: [] },
+    "POST /api/sorting/resort": httpError(409, { code: "confirm_cost", detail: "About three requests." }),
+  }));
+  render(<CollectionsPage selection="unsorted" />);
+  const first = await screen.findByRole("link", { name: "Video 13" });
+  const third = screen.getByRole("checkbox", { name: "Select Video 15" });
+  fireEvent.click(first, { ctrlKey: true });
+  fireEvent.click(third, { shiftKey: true });
+  const toolbar = screen.getByRole("toolbar", { name: "Selected saves" });
+  expect(toolbar).toHaveTextContent("3 selected");
+  fireEvent.click(within(toolbar).getByRole("button", { name: "Re-sort selected" }));
+  const dialog = await screen.findByRole("dialog", { name: "Use cloud AI to re-sort?" });
+  expect(calls.filter(c => c.url === "/api/sorting/resort").map(c => c.body)).toEqual([
+    { which: "unsorted", keep_manual: true, confirm_cost: false, item_ids: [13, 14, 15] },
+  ]);
+  fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+  fireEvent.keyDown(third, { key: "a", ctrlKey: true });
+  expect(toolbar).toHaveTextContent("4 selected");
+  fireEvent.change(within(toolbar).getByRole("combobox", { name: "Move the selected saves into a collection" }), { target: { value: "4" } });
+  await waitFor(() => expect(calls.find(c => c.url === "/api/items/bulk")?.body).toEqual({
+    action: "add_to", collection_id: 4, item_ids: [13, 14, 15, 16],
+  }));
+  fireEvent.keyDown(third, { key: "Escape" });
+  expect(screen.queryByRole("toolbar", { name: "Selected saves" })).toBeNull();
 });
 
 test("bring from your platform: one button makes them here, and it says what happens next", async () => {

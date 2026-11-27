@@ -1,6 +1,7 @@
 // Unsave (#/unsave): saves whose notes are kept here, so the user
 // can remove them from the platform themselves. The app never touches the
 // user's TikTok, YouTube, Instagram or Facebook account.
+import { SaveControls } from "../features/library/SaveControls";
 import { useEffect, useState } from "react";
 
 import EmptyState from "../components/EmptyState";
@@ -8,7 +9,7 @@ import ProgressBar from "../components/ProgressBar";
 import { icons } from "../components/icons";
 import { useDialog } from "../components/Dialog";
 import { toast } from "../components/Toasts";
-import { announceChange } from "../features/organize/organizeApi";
+import { announceChange, onOrganizeChange } from "../features/organize/organizeApi";
 import { Button, Notice } from "../components/ui";
 import {
   displayTitle,
@@ -26,7 +27,7 @@ import { Tip } from "../lib/tips";
 function Row({ item, busy, onToggle }: { item: LibraryItem; busy: boolean; onToggle: (unsaved: boolean) => void }) {
   return (
     <li
-      className={`flex items-center gap-3 px-4 py-2.5 transition ${
+      className={`group flex items-center gap-3 px-4 py-2.5 transition ${
         item.unsaved ? "opacity-60" : ""
       }`}
     >
@@ -45,6 +46,7 @@ function Row({ item, busy, onToggle }: { item: LibraryItem; busy: boolean; onTog
           {[item.kind_label, item.saved_at ? `saved ${formatDate(item.saved_at)}` : null].filter(Boolean).join(" · ")}
         </span>
       </a>
+      <SaveControls id={item.id} title={item.title ?? item.url} archived={item.deleted} />
       <a
         href={item.url}
         target="_blank"
@@ -69,7 +71,9 @@ export default function UnsavePage() {
   const [walkQueue, setWalkQueue] = useState<LibraryItem[] | null>(null);
 
   useEffect(() => {
-    libraryApi.unsave().then(setList).catch((e) => setError(errorText(e)));
+    const refresh = () => libraryApi.unsave().then(setList).catch((e) => setError(errorText(e)));
+    void refresh();
+    return onOrganizeChange(refresh);
   }, []);
 
   async function toggle(item: LibraryItem, unsaved: boolean) {

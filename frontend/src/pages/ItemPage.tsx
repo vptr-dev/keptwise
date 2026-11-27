@@ -232,7 +232,7 @@ export default function ItemPage({ itemId }: { itemId: number }) {
                 title="Move this save to the Keptwise Archive, where you can put it back"
                 onClick={() => void update(() => libraryApi.patch(itemId, { deleted: true }))}
               >
-                <span className="h-4 w-4">{icons.trash}</span>
+                <span className="h-4 w-4">{icons.archive}</span>
                 Archive
               </Button>
             )}

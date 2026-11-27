@@ -5,6 +5,7 @@ Everything here except the look follows the platform picker (scope.py)."""
 
 from __future__ import annotations
 
+import hashlib
 import os
 import sqlite3
 from typing import Any, Literal
@@ -345,6 +346,49 @@ def archive_counts(svc: AppServices = Depends(services)) -> dict[str, int]:
             params,
         ).fetchone()
     return {key: int(row[key] or 0) for key in ("deleted", "unsaved", "gone")}
+
+
+ArchiveAction = Literal["restore", "purge", "archive_unavailable"]
+
+
+def archive_batch(conn, svc, action):
+    chosen = scope.current(svc.settings)
+    scoped, params = scope.where(chosen, "items", deleted=None)
+    condition = "deleted_at IS NULL AND gone_at IS NOT NULL" if action == "archive_unavailable" else "deleted_at IS NOT NULL"
+    rows = conn.execute(f"SELECT id FROM items WHERE {condition} AND {scoped} ORDER BY id", params)
+    ids = [row[0] for row in rows]
+    token = hashlib.sha256(f"{action}/{chosen}/{ids}".encode()).hexdigest()
+    return ids, token
+
+
+@router.get("/archive/batch/{action}")
+def preview_archive(action: ArchiveAction, svc: AppServices = Depends(services)):
+    with svc.db.connect() as conn:
+        ids, token = archive_batch(conn, svc, action)
+    return {"count": len(ids), "token": token}
+
+
+class ArchiveConfirmation(BaseModel):
+    token: str = Field(min_length=64, max_length=64)
+
+
+@router.post("/archive/batch/{action}")
+def apply_archive(action: ArchiveAction, body: ArchiveConfirmation, svc: AppServices = Depends(services)):
+    files = {}
+    with svc.db.connect() as conn:
+        # Acquire the main database write lock before checking the confirmed set.
+        conn.execute("UPDATE items SET deleted_at=deleted_at WHERE 0")
+        ids, token = archive_batch(conn, svc, action)
+        if token != body.token:
+            raise HTTPException(409, "The Archive changed. Review the count and try again.")
+        for item_id in ids:
+            if action == "purge":
+                files[item_id] = progress.purge(conn, item_id)
+            else:
+                progress.set_deleted(conn, item_id, action == "archive_unavailable")
+    for item_id, names in files.items():
+        remove_files(svc, item_id, names)
+    return {"count": len(ids)}
 
 
 @router.post("/items/{item_id}/restart")

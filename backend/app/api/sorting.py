@@ -702,12 +702,15 @@ def _pick_ids(svc: AppServices, which: str, item_ids: list[int] | None) -> list[
         "with_notes": "status IN ('enriched', 'processed')",
     }
     with svc.db.connect() as conn:
-        if item_ids:
+        if item_ids is not None:
+            if not item_ids:
+                return []
             marks = ",".join("?" for _ in item_ids)
+            eligible = UNSORTED_SQL if which == "unsorted" else "status IN ('enriched', 'processed')"
             rows = conn.execute(
-                f"SELECT id FROM items WHERE id IN ({marks}) AND deleted_at IS NULL AND status IN ('enriched', 'processed') "
+                f"SELECT id FROM items WHERE id IN ({marks}) AND {scoped} AND {eligible} "
                 "ORDER BY saved_at DESC, id DESC",
-                item_ids,
+                [*item_ids, *params],
             ).fetchall()
         else:
             rows = conn.execute(

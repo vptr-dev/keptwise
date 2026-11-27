@@ -4,6 +4,7 @@
 // Then: ask it again, or clear what it did. The other pages only show your
 // saves and let you change them by hand. Each step runs in batches with
 // live progress and Pause/Resume/Cancel.
+import { onArchiveChange } from "../features/library/SaveControls";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import { icons } from "../components/icons";
@@ -37,6 +38,7 @@ export default function TranscriptsPage({ hideStats = false, onToggleStats }: {
     enrichApi.recent().then(setRecent).catch(() => undefined);
   }, []);
   useEffect(refresh, [refresh]);
+  useEffect(() => onArchiveChange(refresh), [refresh]);
 
   // Each finished video moves the progress bar: show it in the list too.
   useEffect(() => {

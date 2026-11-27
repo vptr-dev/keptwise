@@ -17,6 +17,7 @@ import { onOrganizeChange } from "./features/organize/organizeApi";
 import { arrangeNav } from "./features/organize/tree";
 import CommandPalette, { type CommandAction } from "./features/command/CommandPalette";
 import UpdateNow from "./features/updates/UpdateNow";
+import { RowSelection } from "./features/library/SaveControls";
 import UndoButtons, { onUndo } from "./features/undo/UndoButtons";
 import { updatesApi, type UpdateStatus } from "./features/updates/updatesApi";
 import { api } from "./lib/api";
@@ -301,6 +302,7 @@ export default function App() {
   else if (page === "plans" && Number.isInteger(planId)) content = <PlanPage planId={planId} />;
   else if (page === "plans") content = <PlansPage />;
   else if (page === "unsave") content = <UnsavePage />;
+  else if (page === "archive" && route.parts[1] === "unsaved") content = <UnsavePage />;
   else if (page === "archive") content = <ArchivePage tab={route.parts[1] ?? null} cardSize={look.card_size} />;
   else if (page === "import") content = <ImportPage />;
   else if (page === "transcripts" || page === "sort") content = <TranscriptsPage hideStats={look.hide_sort_stats}
@@ -354,7 +356,7 @@ export default function App() {
       >
         {/* key: each page starts at the top, with fresh state, and reloads when the platform changes */}
         <div key={`${page === "item" || page === "plans" ? route.path : page}|${scope.platform ?? "all"}|${dataVersion}`} className={`kw-page ${page === "collections" || page === "chat" || page === "assistant" ? "h-full" : ""}`}>
-          {content}
+          <RowSelection key={route.path}>{content}</RowSelection>
         </div>
       </Layout>
       {welcome && <Welcome look={look} onChange={changeLook} onTheme={setTheme} cloud={overview?.current_kind === "cloud"} />}
@@ -362,7 +364,7 @@ export default function App() {
         <SetupWizard overview={overview} onChange={setOverview} onFinish={() => setWizardClosed(true)} />
       )}
       {showTutorial && <GuidedTour onClose={closeTutorial} />}
-      {showCommands && !showTutorial && <CommandPalette actions={commands} onClose={() => setShowCommands(false)} />}
+      {showCommands && !showTutorial && <RowSelection><CommandPalette actions={commands} onClose={() => setShowCommands(false)} /></RowSelection>}
       {showShortcuts && !showTutorial && <ShortcutsDialog onClose={() => setShowShortcuts(false)} />}
       <Toasts />
     </TipsProvider>

@@ -51,6 +51,8 @@ LABELS: list[tuple[str, str, str]] = [
     ("POST", r"/api/items/\d+/tags$", "Tag a save"),
     ("DELETE", r"/api/items/\d+/tags/\d+$", "Take a tag off"),
     ("POST", r"/api/unsave/clear$", "Clear the Unsave checklist"),
+    ("POST", r"/api/archive/batch/restore$", "Restore archived saves"),
+    ("POST", r"/api/archive/batch/archive_unavailable$", "Archive unavailable saves"),
     ("POST", r"/api/items/bulk$", "Change saves"),
     ("PATCH", r"/api/items/\d+$", "Change a save"),
     ("DELETE", r"/api/items/\d+$", "Delete a save for good"),
@@ -75,7 +77,7 @@ LABELS: list[tuple[str, str, str]] = [
 ]
 
 # Requests that are never a step of their own.
-NOT_RECORDED = re.compile(r"^/api/(undo|redo|jobs|updates|session|storage|dev|imports|sorting/settings$|ai/|assistant/)")
+NOT_RECORDED = re.compile(r"^/api/(archive/batch/purge$|undo|redo|jobs|updates|session|storage|dev|imports|sorting/settings$|ai/|assistant/)")
 
 
 def label_for(method: str, path: str) -> str:

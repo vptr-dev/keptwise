@@ -12,6 +12,7 @@ import SpeechSettings from "../features/enrich/SpeechSettings";
 import AppearanceSettings from "../features/look/AppearanceSettings";
 import SortingSettings from "../features/sorting/SortingSettings";
 import WorkflowControls from "../features/sorting/WorkflowControls";
+import WorkspaceSettings from "../components/WorkspaceSettings";
 import StorageSettings from "../features/storage/StorageSettings";
 import type { UpdateStatus } from "../features/updates/updatesApi";
 import UpdatesSettings from "../features/updates/UpdatesSettings";
@@ -83,6 +84,10 @@ export default function SettingsPage({
             </div>
           </Card>
         ),
+      },
+      {
+        id: "workspaces", title: "Workspaces", blurb: "Separate libraries and settings on this PC.",
+        settings: ["Profiles", "Create workspace", "Switch workspace"], render: () => <WorkspaceSettings />,
       },
       {
         id: "ai",

@@ -1,6 +1,7 @@
 // One saved video as a card: thumbnail, AI title and summary, its
 // collections and tags, and the notes and steps when opened. Drag it onto a
 // collection in the sidebar to move it (or use "Move to…" from the keyboard).
+import { SaveControls } from "../library/SaveControls";
 import { useState, type DragEvent, type ReactNode } from "react";
 
 import { useContextMenu } from "../../components/ContextMenu";
@@ -65,7 +66,7 @@ export default function ItemCard({
       draggable
       onDragStart={startDrag}
       onDragEnd={() => setDragging(false)}
-      className={`cursor-grab transition active:cursor-grabbing ${dragging ? "opacity-50" : ""}`}
+      className={`group cursor-grab transition active:cursor-grabbing ${dragging ? "opacity-50" : ""}`}
       data-testid={`item-${item.id}`}
       onContextMenu={(event) =>
         openMenu(
@@ -90,6 +91,7 @@ export default function ItemCard({
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
+      <SaveControls id={item.id} title={item.title ?? item.url} />
               {item.kind_label && <Badge tone="indigo">{item.kind_label}</Badge>}
               <span className="text-xs text-zinc-500 dark:text-zinc-400">{meta}</span>
             </div>

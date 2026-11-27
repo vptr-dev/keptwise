@@ -1,6 +1,7 @@
 // One saved video in search results or chat: thumbnail, title, and why it
 // was found (the matching words, highlighted, and where; or the passage
 // that means something similar). Click it to see everything.
+import { SaveControls } from "../library/SaveControls";
 import { useState, type MouseEvent } from "react";
 import { useContextMenu, type MenuItem } from "../../components/ContextMenu";
 import { useDialog } from "../../components/Dialog";
@@ -50,7 +51,7 @@ export default function ResultCard({
 
   return (
     <article
-      className={`relative flex flex-wrap items-start rounded-2xl border bg-white shadow-sm dark:bg-zinc-900 ${
+      className={`group relative flex flex-wrap items-start rounded-2xl border bg-white shadow-sm dark:bg-zinc-900 ${
         selected ? "border-indigo-500 ring-1 ring-indigo-500" : "border-zinc-200 dark:border-zinc-800"
       }`}
       onContextMenu={openMenu}
@@ -60,9 +61,9 @@ export default function ResultCard({
         event.dataTransfer.effectAllowed = "copyMove";
       }}
     >
-      {onSelect && selecting && (
+      {onSelect && (
         <input type="checkbox" checked={selected} aria-label={`Select ${displayTitle(item)}`}
-          className="ml-3 mt-4 accent-indigo-600" onChange={() => onSelect(item.id, false)} />
+          className={"ml-3 mt-4 h-5 w-5 accent-indigo-600 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100 " + (selecting ? "" : "opacity-0")} onChange={() => onSelect(item.id, false)} />
       )}
       <button
         type="button"
@@ -115,6 +116,7 @@ export default function ResultCard({
       </button>
       {!selecting && !item.deleted && (
         <div className="flex items-center gap-2 p-3">
+          <SaveControls id={item.id} title={displayTitle(item)} select={!onSelect} onChange={setEdited} />
           <QuickActions item={item} onChange={setEdited} visible inline />
           <button type="button" aria-label={`Actions for ${displayTitle(item)}`} title="More actions"
             className="h-7 w-7 rounded p-1 text-zinc-600 hover:bg-zinc-200 focus-visible:outline-2 dark:text-zinc-300 dark:hover:bg-zinc-700"
