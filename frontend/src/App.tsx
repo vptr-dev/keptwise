@@ -301,8 +301,8 @@ export default function App() {
   else if (page === "item" && Number.isInteger(itemId)) content = <ItemPage itemId={itemId} />;
   else if (page === "plans" && Number.isInteger(planId)) content = <PlanPage planId={planId} />;
   else if (page === "plans") content = <PlansPage />;
-  else if (page === "unsave") content = <UnsavePage />;
-  else if (page === "archive" && route.parts[1] === "unsaved") content = <UnsavePage />;
+  else if (page === "unsave") content = <UnsavePage shortcut={look.unsave_shortcut} onShortcutChange={(unsave_shortcut) => changeLook({ unsave_shortcut })} />;
+  else if (page === "archive" && route.parts[1] === "unsaved") content = <UnsavePage shortcut={look.unsave_shortcut} onShortcutChange={(unsave_shortcut) => changeLook({ unsave_shortcut })} />;
   else if (page === "archive") content = <ArchivePage tab={route.parts[1] ?? null} cardSize={look.card_size} />;
   else if (page === "import") content = <ImportPage />;
   else if (page === "transcripts" || page === "sort") content = <TranscriptsPage hideStats={look.hide_sort_stats}

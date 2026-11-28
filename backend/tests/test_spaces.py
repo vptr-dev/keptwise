@@ -150,7 +150,10 @@ def test_a_folder_shows_its_own_saves_or_everything_inside(api: TestClient, svc:
 def test_platform_collections_transfer_in_one_go(api: TestClient, svc: AppServices) -> None:
     with svc.db.connect() as conn:
         for n, where in enumerate(["Recipes, Watch later", "recipes", None]):
-            upsert_item(conn, NewItem(platform="youtube", url=f"https://y/{n}", platform_collection=where))
+            item_id, _ = upsert_item(conn, NewItem(platform="youtube", url=f"https://y/{n}", platform_collection=where))
+            if where == "Recipes, Watch later":
+                conn.execute("UPDATE items SET platform_collections_json = ? WHERE id = ?",
+                             ('["Recipes", "Watch later"]', item_id))
         conn.execute(
             "INSERT INTO jobs (kind, title, status, result_json) VALUES ('import', 'Import', 'done', ?)",
             ('{"platforms": [{"platform": "tiktok", "collections": ["Gym", "Food"]}]}',),

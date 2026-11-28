@@ -5,11 +5,15 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from app.ai.sorting.job import needs_ai_work, now_iso
+from app.db.items_repo import get_item_row
+from app.enrich.job import needs_enrichment
 from app.services import AppServices, services
 
 router = APIRouter(prefix="/api")
@@ -30,6 +34,29 @@ def get_job(job_id: int, svc: AppServices = Depends(services)) -> dict[str, Any]
     if job is None:
         raise HTTPException(status_code=404, detail="No such job.")
     return job
+
+
+@router.get("/jobs/{job_id}/remaining")
+def remaining(job_id: int, svc: AppServices = Depends(services)) -> list[dict[str, Any]]:
+    job = get_job(job_id, svc)
+    params = job["params"]
+    kind = job["kind"]
+    if kind not in ("enrich", "notes", "sort", "tags"):
+        return []
+    retry_since = datetime.fromisoformat(params["retry_since"]) if params.get("retry_since") else None
+    started = str(params.get("since") or now_iso())
+    tagged = set(params.get("tagged_ids", []))
+    results = []
+    with svc.db.connect() as conn:
+        for item_id in params.get("item_ids", []):
+            row = get_item_row(conn, int(item_id))
+            if row is None or item_id in tagged:
+                continue
+            eligible = needs_enrichment(row, retry_since) if kind == "enrich" else needs_ai_work(row, kind, started)
+            if eligible:
+                results.append({"id": row["id"], "title": row["title"] or row["caption"] or row["url"],
+                                "error": row["error"], "unavailable": bool(row["gone_at"])})
+    return results
 
 
 def _require(svc: AppServices, job_id: int) -> None:

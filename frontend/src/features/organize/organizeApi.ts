@@ -57,6 +57,7 @@ export type PlatformLinks = {
   links: PlatformLink[];
   import_destinations?: ImportDestination[];
   room_left: number;
+  unconfirmed_memberships?: number;
   filed?: number;
   made?: number; // transfer: new collections made
   linked?: number; // transfer: platform collections linked

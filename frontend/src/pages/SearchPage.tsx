@@ -11,7 +11,8 @@ import { onOrganizeChange } from "../features/organize/organizeApi";
 import ItemPanel from "../features/search/ItemPanel";
 import ResultCard from "../features/search/ResultCard";
 import SearchBar from "../features/search/SearchBar";
-import { searchApi, type IndexStatus, type SearchMode, type SearchResponse } from "../features/search/searchApi";
+import { searchApi, type IndexStatus, type SearchFilters, type SearchMode, type SearchResponse } from "../features/search/searchApi";
+import { libraryApi, type LibraryFilters } from "../features/library/libraryApi";
 import { errorText } from "../lib/api";
 import { isActive, useJobFinished, useJobs } from "../lib/jobs";
 import { navigate, useRoute } from "../lib/router";
@@ -26,6 +27,9 @@ const MODES: { id: SearchMode; label: string }[] = [
 export default function SearchPage() {
   const route = useRoute();
   const query = (route.query.get("q") ?? "").trim();
+  const [filters, setFilters] = useState<SearchFilters>({});
+  const [choices, setChoices] = useState<LibraryFilters | null>(null);
+  useEffect(() => { libraryApi.filters().then(setChoices).catch(() => undefined); }, []);
   const [mode, setMode] = useState<SearchMode>("both");
   const [data, setData] = useState<SearchResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -66,7 +70,7 @@ export default function SearchPage() {
     setLoading(true);
     setError(null);
     searchApi
-      .search(query, mode, controller.signal)
+      .search(query, mode, controller.signal, filters)
       .then((response) => { if (!controller.signal.aborted) setData(response); })
       .catch((e) => {
         if (!controller.signal.aborted) setError(errorText(e));
@@ -75,7 +79,7 @@ export default function SearchPage() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [query, mode, refresh]);
+  }, [query, mode, refresh, filters]);
 
   const results = data?.query === query ? data.results : [];
   const openResult = results.find((r) => r.item.id === openId);
@@ -156,6 +160,29 @@ export default function SearchPage() {
             ))}
           </div>
 
+          {choices && <div className="flex flex-wrap gap-2" aria-label="Search filters">
+            {([
+              ["collection_id", "Collection", choices.collections],
+              ["tag", "Tag", choices.tags],
+              ["creator", "Creator", choices.creators],
+            ] as const).map(([field, label, options]) => options?.length > 0 && (
+              <select key={field} aria-label={label} className="max-w-56 rounded-lg border border-zinc-300 bg-white p-2 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+                value={filters[field] ?? ""} onChange={event => {
+                  const value = event.target.value;
+                  setData(null);
+                  clear();
+                  setFilters(old => {
+                    const next = {...old};
+                    if (value) next[field] = value;
+                    else delete next[field];
+                    return next;
+                  });
+                }}>
+                <option value="">Any {label.toLowerCase()}</option>
+                {options.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
+              </select>
+            ))}
+          </div>}
           {error && <Notice tone="error">{error}</Notice>}
           {loading && results.length === 0 && <p className="text-sm text-zinc-500">Searching…</p>}
           {!loading && !error && data?.query === query && results.length === 0 && (

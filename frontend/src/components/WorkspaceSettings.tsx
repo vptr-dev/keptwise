@@ -14,7 +14,12 @@ function useSpaces() {
       .catch(e => { if (mounted) setError(String(e)); });
     refresh();
     window.addEventListener("pywebviewready", refresh);
-    return () => { mounted = false; window.removeEventListener("pywebviewready", refresh); };
+    window.addEventListener("keptwise-workspaces-changed", refresh);
+    return () => {
+      mounted = false;
+      window.removeEventListener("pywebviewready", refresh);
+      window.removeEventListener("keptwise-workspaces-changed", refresh);
+    };
   }, []);
   return { spaces, setSpaces, error, setError };
 }

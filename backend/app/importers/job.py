@@ -19,7 +19,7 @@ from typing import Any
 
 from app.ai.sorting import collections, platform_links
 from app.db.connection import Database
-from app.db.items_repo import update_item, upsert_item
+from app.db.items_repo import NewItem, update_item, upsert_item
 from app.importers import PLATFORM_NAMES, parse_export
 from app.importers.source import ExportSource
 from app.jobs.runner import Handler, JobContext
@@ -59,6 +59,57 @@ def make_import_handler(db: Database, imports_dir: Path) -> Handler:
     return run_import
 
 
+def save_batch(db: Database, platform: str, items: list[NewItem], *, reimport: bool = False) -> tuple[int, int, int]:
+    """Store one batch and return counts for new, deleted-before and filed saves."""
+    new = skipped = filed = 0
+    with db.connect() as conn:
+        # Keep the purge check and insertion in one write transaction.
+        conn.execute("BEGIN IMMEDIATE")
+        exact, default = platform_links.import_routes(conn, platform)
+        for item in items:
+            identity = (item.platform, item.url)
+            if conn.execute("SELECT 1 FROM removed_links WHERE platform = ? AND url = ?", identity).fetchone():
+                if not reimport:
+                    skipped += 1
+                    continue
+                conn.execute("DELETE FROM removed_links WHERE platform = ? AND url = ?", identity)
+            before = conn.execute(
+                """SELECT platform_collection, platform_collections_json, deleted_at, gone_at
+                   FROM items WHERE platform = ? AND url = ?""",
+                identity,
+            ).fetchone()
+            item_id, is_new = upsert_item(conn, item)
+            if is_new:
+                new += 1
+            if before and (before["deleted_at"] or before["gone_at"]):
+                continue
+            added = {
+                name.casefold(): name for value in item.platform_collections
+                if (name := collections.clean_name(value))
+            }
+            confirms_legacy = (
+                before is not None
+                and before["platform_collections_json"] is None
+                and before["platform_collection"] == item.platform_collection
+                and bool(added)
+            )
+            previous = platform_links.member_names(before) if before else []
+            if confirms_legacy:
+                previous = list(added.values())
+            for name in previous:
+                added.pop(name.casefold(), None)
+            if added or confirms_legacy:
+                members = [*previous, *added.values()]
+                update_item(conn, item_id, platform_collection=", ".join(members),
+                            platform_collections_json=json.dumps(members, ensure_ascii=False))
+            targets = dict.fromkeys(exact[key] for key in added if key in exact)
+            if is_new and not targets and default is not None:
+                targets[default] = None
+            placements = sum(platform_links.add_from_platform(conn, item_id, target) for target in targets)
+            filed += bool(placements)
+    return new, skipped, filed
+
+
 def import_folder(ctx: JobContext, db: Database, folder: Path) -> dict[str, Any]:
     with ExportSource.open(folder) as source:
         results = parse_export(source)
@@ -73,49 +124,10 @@ def import_folder(ctx: JobContext, db: Database, folder: Path) -> dict[str, Any]
         items = result.items
         for start in range(0, len(items), BATCH):
             ctx.check()
-            with db.connect() as conn:
-                # Keep the purge check and insertion in one write transaction.
-                conn.execute("BEGIN IMMEDIATE")
-                exact, default = platform_links.import_routes(conn, result.platform)
-                for item in items[start : start + BATCH]:
-                    identity = (item.platform, item.url)
-                    if conn.execute("SELECT 1 FROM removed_links WHERE platform = ? AND url = ?", identity).fetchone():
-                        skipped += 1
-                        continue  # deleted for good by the user: stays gone
-                    before = conn.execute(
-                        """SELECT platform_collection, platform_collections_json, deleted_at, gone_at
-                           FROM items WHERE platform = ? AND url = ?""",
-                        identity,
-                    ).fetchone()
-                    item_id, is_new = upsert_item(conn, item)
-                    if is_new:
-                        new += 1
-                    if before and (before["deleted_at"] or before["gone_at"]):
-                        continue
-                    added = {
-                        name.casefold(): name for value in item.platform_collections
-                        if (name := collections.clean_name(value))
-                    }
-                    confirms_legacy = (
-                        before is not None
-                        and before["platform_collections_json"] is None
-                        and before["platform_collection"] == item.platform_collection
-                        and bool(added)
-                    )
-                    previous = platform_links.member_names(before) if before else []
-                    if confirms_legacy:
-                        previous = list(added.values())
-                    for name in previous:
-                        added.pop(name.casefold(), None)
-                    if added or confirms_legacy:
-                        members = [*previous, *added.values()]
-                        update_item(conn, item_id, platform_collection=", ".join(members),
-                                    platform_collections_json=json.dumps(members, ensure_ascii=False))
-                    targets = dict.fromkeys(exact[key] for key in added if key in exact)
-                    if is_new and not targets and default is not None:
-                        targets[default] = None
-                    placements = sum(platform_links.add_from_platform(conn, item_id, target) for target in targets)
-                    filed += bool(placements)
+            batch_new, batch_skipped, batch_filed = save_batch(db, result.platform, items[start : start + BATCH])
+            new += batch_new
+            skipped += batch_skipped
+            filed += batch_filed
             done += len(items[start : start + BATCH])
             ctx.progress(done, total, f"Saved {done:,} of {total:,}")
         platforms.append(

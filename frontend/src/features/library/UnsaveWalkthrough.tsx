@@ -2,42 +2,54 @@
 // they press the save/bookmark button themselves; then one click ticks it off
 // here and opens the next. Keptwise never logs in to or changes the platform.
 import { SaveControls } from "./SaveControls";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import ProgressBar from "../../components/ProgressBar";
 import { icons } from "../../components/icons";
 import { Button, Notice } from "../../components/ui";
+import { UNSAVE_SHORTCUT_LABELS, type UnsaveShortcut } from "../../lib/theme";
 import { errorText } from "../../lib/api";
 import { displayTitle, libraryApi, type LibraryItem } from "./libraryApi";
 import Thumb from "./Thumb";
 
+let shortcutSequence = 0;
+const HOTKEY_EVENT = "keptwise-unsave-hotkey";
+type Bridge = { unsave_hotkey?: (value: UnsaveShortcut, generation: number) => Promise<boolean> };
+const bridge = () => (window as Window & { pywebview?: { api?: Bridge } }).pywebview?.api;
+
 export default function UnsaveWalkthrough({
   queue,
+  shortcut = "off",
   onUnsaved,
   onClose,
 }: {
+  shortcut?: UnsaveShortcut;
   queue: LibraryItem[]; // the saves still to unsave, in order
   onUnsaved: (item: LibraryItem) => void;
   onClose: () => void;
 }) {
   const [position, setPosition] = useState(0);
   const [done, setDone] = useState(0);
+  const inFlight = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [shortcutError, setShortcutError] = useState("");
   const item = queue[position];
 
   async function open(target: LibraryItem | undefined) {
     if (!target) return;
     setError(null);
     try {
-      await libraryApi.openInBrowser(target.id);
+      const result = await libraryApi.openInBrowser(target.id);
+      if (!result.opened) setError("Couldn’t open the browser. Use Open again to retry.");
     } catch (e) {
       setError(errorText(e));
     }
   }
 
   async function markAndNext() {
-    if (!item) return;
+    if (!item || inFlight.current) return;
+    inFlight.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -49,14 +61,59 @@ export default function UnsaveWalkthrough({
     } catch (e) {
       setError(errorText(e));
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   }
 
-  function skip() {
-    const next = queue[position + 1];
-    setPosition((p) => p + 1);
-    void open(next);
+  const advance = useRef(markAndNext);
+  advance.current = markAndNext;
+  const hasItem = !!item;
+  useEffect(() => {
+    setShortcutError("");
+    if (!hasItem || shortcut === "off") return;
+    let active = true;
+    let generation = 0;
+    const register = () => {
+      generation = ++shortcutSequence;
+      const result = bridge()?.unsave_hotkey?.(shortcut, generation);
+      if (!result) {
+        setShortcutError("Global shortcuts are available in the Windows desktop app.");
+        return;
+      }
+      void result.then(ok => {
+        if (active) setShortcutError(ok ? "" : "Windows could not register this shortcut. Try another combination.");
+      }).catch(() => {
+        if (active) setShortcutError("Windows could not register this shortcut.");
+      });
+    };
+    const trigger = (event: Event) => {
+      if ((event as CustomEvent<number>).detail === generation) void advance.current();
+    };
+    window.addEventListener("pywebviewready", register);
+    window.addEventListener("keptwise-frame", register);
+    window.addEventListener(HOTKEY_EVENT, trigger);
+    register();
+    return () => {
+      active = false;
+      window.removeEventListener("pywebviewready", register);
+      window.removeEventListener("keptwise-frame", register);
+      window.removeEventListener(HOTKEY_EVENT, trigger);
+      void bridge()?.unsave_hotkey?.("off", ++shortcutSequence).catch(() => undefined);
+    };
+  }, [hasItem, shortcut]);
+
+  async function skip() {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    try {
+      setPosition((p) => p + 1);
+      await open(queue[position + 1]);
+    } finally {
+      inFlight.current = false;
+      setBusy(false);
+    }
   }
 
   return (
@@ -99,7 +156,7 @@ export default function UnsaveWalkthrough({
               <span className="h-4 w-4">{icons.external}</span>
               Open again
             </Button>
-            <Button variant="ghost" disabled={busy} onClick={skip}>
+            <Button variant="ghost" disabled={busy} onClick={() => void skip()}>
               Skip
             </Button>
           </div>
@@ -110,6 +167,11 @@ export default function UnsaveWalkthrough({
           <button type="button" className="font-medium text-indigo-600 hover:underline dark:text-indigo-400" onClick={onClose}>
             Close
           </button>
+        </p>
+      )}
+      {hasItem && shortcut !== "off" && (
+        <p className="mt-3 text-xs text-zinc-500" role="status">
+          {shortcutError || `${UNSAVE_SHORTCUT_LABELS[shortcut]} marks this video done even from your browser.`}
         </p>
       )}
       {error && (

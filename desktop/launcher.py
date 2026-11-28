@@ -26,6 +26,7 @@ import secrets
 import subprocess
 import socket
 import sys
+import tempfile
 import threading
 import time
 import urllib.request
@@ -141,6 +142,118 @@ class WindowControls:
         self._spaces = None
         self._services = None
         self._reopen = False
+        self._shortcut_generation = -1
+        self._shortcut_registered = False
+        self._backdrop_generation = -1
+        self._backup_lock = threading.Lock()
+        self._backup_preview = None
+
+    def unsave_hotkey(self, chord: str, generation: int) -> bool:
+        if self._frame is None or chord not in (*window_frame.UNSAVE_CHORDS, "off"):
+            return False
+        import ctypes
+        from ctypes.wintypes import HWND
+        from System import Action
+
+        native = self._window.native
+        result = False
+
+        def register():
+            nonlocal result
+            if generation < self._shortcut_generation:
+                return
+            self._shortcut_generation = generation
+            hwnd = HWND(native.Handle.ToInt64())
+            user = ctypes.windll.user32
+            if self._shortcut_registered:
+                user.UnregisterHotKey(hwnd, window_frame.UNSAVE_HOTKEY_ID)
+                self._shortcut_registered = False
+            if chord == "off":
+                result = True
+                return
+            modifiers, key = window_frame.UNSAVE_CHORDS[chord]
+            result = bool(user.RegisterHotKey(hwnd, window_frame.UNSAVE_HOTKEY_ID, modifiers | 0x4000, key))
+            self._shortcut_registered = result
+
+        native.Invoke(Action(register))
+        return result
+
+    def _on_unsave_hotkey(self) -> None:
+        generation = self._shortcut_generation
+
+        def dispatch():
+            try:
+                self._window.evaluate_js(
+                    f"window.dispatchEvent(new CustomEvent('keptwise-unsave-hotkey', {{detail: {generation}}}))"
+                )
+            except Exception:
+                pass  # The window can close while Windows is delivering the keystroke.
+
+        threading.Thread(target=dispatch, daemon=True).start()
+
+    def appearance(self, style: str, dark: bool, generation: int) -> bool:
+        if self._window is None or self._window.native is None or sys.platform != "win32":
+            return False
+        from System import Action
+
+        result = False
+
+        def apply():
+            nonlocal result
+            if generation > self._backdrop_generation:
+                self._backdrop_generation = generation
+                result = window_frame.apply_backdrop(self._window, style, dark)
+
+        self._window.native.Invoke(Action(apply))
+        return result
+
+    def save_library_backup(self):
+        from app.library.backup import write_backup
+
+        with self._backup_lock:
+            selection = self._window.create_file_dialog(
+                webview.FileDialog.SAVE, save_filename="Keptwise-library.zip", file_types=("Keptwise backup (*.zip)",),
+            )
+            if not selection:
+                return False
+            destination = Path(selection if isinstance(selection, str) else selection[0])
+            with self._services.runner.maintenance():
+                write_backup(self._services.paths, destination)
+            return True
+
+    def preview_library_backup(self):
+        import sqlite3
+        from zipfile import BadZipFile
+        from app.library.backup import unpack_backup
+
+        with self._backup_lock:
+            if self._backup_preview:
+                self._backup_preview.cleanup()
+                self._backup_preview = None
+            selection = self._window.create_file_dialog(
+                webview.FileDialog.OPEN, file_types=("Keptwise backup (*.zip)",),
+            )
+            if not selection:
+                return None
+            staging = tempfile.TemporaryDirectory(prefix="restore-", dir=self._spaces.root)
+            try:
+                result = unpack_backup(Path(selection[0]), Path(staging.name))
+            except (BadZipFile, sqlite3.Error) as error:
+                staging.cleanup()
+                raise ValueError("That file is not a readable Keptwise backup.") from error
+            except BaseException:
+                staging.cleanup()
+                raise
+            self._backup_preview = staging
+            return result
+
+    def restore_library_backup(self, name):
+        with self._backup_lock:
+            if self._backup_preview is None:
+                raise ValueError("Choose and verify a backup first.")
+            self._spaces.create(name, restored=Path(self._backup_preview.name))
+            self._backup_preview.cleanup()
+            self._backup_preview = None
 
     def workspaces(self):
         return self._spaces.list()
@@ -308,7 +421,7 @@ def main(argv: list[str] | None = None) -> int:
         def shown() -> None:
             set_window_icon(window, WINDOW_TITLE, ICON_FILE)
             try:
-                controls._frame = window_frame.install(window)
+                controls._frame = window_frame.install(window, controls._on_unsave_hotkey)
             except Exception as error:  # Keep the Windows frame if integration is unsupported.
                 print(f"Using the Windows window frame: {error}")
             try:

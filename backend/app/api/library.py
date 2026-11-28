@@ -104,20 +104,15 @@ def library_items(
         where.append(scoped)
         params.extend(scoped_params)
     wanted_tags = [tags_repo.clean_tag(t) for t in ([tag] if tag else []) + (tags or "").split(",")]
-    for name in dict.fromkeys(t for t in wanted_tags if t):
-        where.append(
-            "EXISTS (SELECT 1 FROM item_tags it JOIN tags t ON t.id = it.tag_id WHERE it.item_id = i.id AND t.name = ?)"
-        )
-        params.append(name)
+    filtered, filter_params = scope.save_filters(list(dict.fromkeys(t for t in wanted_tags if t)), creator)
+    where.extend(filtered)
+    params.extend(filter_params)
     match = fts_query(q or "")
     if match:
         where.append("i.id IN (SELECT rowid FROM search_fts WHERE search_fts MATCH ?)")
         params.append(match)
     if in_collection == "none":
         where.append("NOT EXISTS (SELECT 1 FROM item_collections ic WHERE ic.item_id = i.id)")
-    if creator:
-        where.append("lower(ltrim(i.author, '@')) = ?")
-        params.append(creator.lstrip("@").lower())
     if platform:
         where.append("i.platform = ?")
         params.append(platform)
@@ -501,6 +496,8 @@ class UiSettings(BaseModel):
     """How the app looks, chosen in Settings -> Appearance."""
 
     theme: Literal["system", "light", "dark"] = "system"
+    background: Literal["clear", "glass", "mica", "solid"] = "mica"
+    unsave_shortcut: Literal["off", "ctrl-alt-u", "ctrl-alt-n", "ctrl-shift-f9"] = "off"
     # The highlight colour of buttons, links and the selected page.
     # "default" has no colour of its own: dark in light mode, light in dark mode.
     accent: Literal["default", "violet", "indigo", "blue", "teal", "emerald", "rose", "amber"] = "default"

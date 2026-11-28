@@ -17,10 +17,11 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.importers import PLATFORM_NAMES, WANTED_EXTENSIONS, WANTED_FILE_NAMES
-from app.importers.job import upload_folder
+from app.importers.job import save_batch, upload_folder
+from app.importers.pasted import pasted_item
 from app.services import AppServices, services
 
 router = APIRouter(prefix="/api/imports")
@@ -68,6 +69,22 @@ def safe_parts(raw: str) -> list[str]:
     if problem:
         raise HTTPException(status_code=400, detail=f"Can't use the file name {raw!r}.")
     return parts
+
+
+class LinkBody(BaseModel):
+    url: str = Field(min_length=1, max_length=4096)
+    reimport: bool = False
+
+
+@router.post("/link")
+def import_link(body: LinkBody, svc: AppServices = Depends(services)) -> dict[str, str]:
+    try:
+        item = pasted_item(body.url)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error) or "That link is invalid.") from None
+    new, skipped, _ = save_batch(svc.db, item.platform, [item], reimport=body.reimport)
+    status = "added" if new else "deleted_before" if skipped else "already_had"
+    return {"status": status, "platform_name": PLATFORM_NAMES[item.platform], "url": item.url}
 
 
 @router.post("")

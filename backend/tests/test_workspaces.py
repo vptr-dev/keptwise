@@ -36,3 +36,31 @@ def test_switch_and_return_preserve_original_library_and_settings(tmp_path, monk
     assert SettingsRepo(restored).get("test.preference", None) == "blue"
     with restored.connect() as conn:
         assert conn.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 1
+
+
+def test_library_backup_restores_a_separate_workspace(tmp_path, monkeypatch):
+    from app.library.backup import unpack_backup, write_backup
+
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "desktop"))
+    from workspaces import Workspaces
+
+    root = tmp_path / "profile"
+    spaces = Workspaces(root)
+    paths = AppPaths(spaces.directory).create()
+    original = Database(paths.database)
+    with original.connect() as conn:
+        upsert_item(conn, NewItem("youtube", "https://example.com/watch"))
+    (paths.thumbnails / "image.jpg").write_bytes(b"picture")
+    archive = tmp_path / "saved.zip"
+    write_backup(paths, archive)
+    staging = tmp_path / "preview"
+    staging.mkdir()
+    assert unpack_backup(archive, staging) == {"saves": 1, "collections": 0}
+    key = spaces.create("Restored", restored=staging)["items"][-1]["id"]
+    assert spaces.current == "default"
+    spaces.choose(key)
+    restored = AppPaths(Workspaces(root).directory)
+    assert restored.database != paths.database
+    assert (restored.thumbnails / "image.jpg").read_bytes() == b"picture"
+    with Database(restored.database).connect() as conn:
+        assert conn.execute("SELECT COUNT(*) FROM items").fetchone()[0] == 1

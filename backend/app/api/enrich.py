@@ -157,6 +157,19 @@ def start(body: StartBody, svc: AppServices = Depends(services)) -> dict[str, An
     return svc.jobs.get(job_id) or {}
 
 
+@router.get("/enrich/problems")
+def problems(offset: int = 0, svc: AppServices = Depends(services)) -> dict[str, Any]:
+    """Unreadable and unavailable videos with their last recorded reason."""
+    condition = "deleted_at IS NULL AND (status = 'failed' OR gone_at IS NOT NULL OR (enriched_at IS NOT NULL AND error IS NOT NULL))"
+    with svc.db.connect() as conn:
+        count = conn.execute(f"SELECT COUNT(*) FROM items WHERE {condition}").fetchone()[0]
+        rows = conn.execute(
+            f"""SELECT id, coalesce(title, caption, url) AS title, error, gone_at IS NOT NULL AS unavailable
+                FROM items WHERE {condition} ORDER BY id DESC LIMIT 50 OFFSET ?""", (max(0, offset),),
+        ).fetchall()
+    return {"total": count, "items": [dict(row) | {"unavailable": bool(row["unavailable"])} for row in rows]}
+
+
 @router.get("/enrich/recent")
 def recent(limit: int = 12, svc: AppServices = Depends(services)) -> list[dict[str, Any]]:
     """The most recently processed videos, newest first."""

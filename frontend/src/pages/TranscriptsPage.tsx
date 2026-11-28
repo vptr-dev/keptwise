@@ -4,6 +4,7 @@
 // Then: ask it again, or clear what it did. The other pages only show your
 // saves and let you change them by hand. Each step runs in batches with
 // live progress and Pause/Resume/Cancel.
+import RecoveryList from "../features/enrich/RecoveryList";
 import { onArchiveChange } from "../features/library/SaveControls";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 
@@ -170,6 +171,7 @@ export default function TranscriptsPage({ hideStats = false, onToggleStats }: {
               </div>
             </details>
             )}
+            <RecoveryList />
             <TikTokAccess connected={overview?.tiktok_session ?? false} onChange={refresh} />
             {model && (
               <p className="mt-4 text-xs text-zinc-500 dark:text-zinc-400">

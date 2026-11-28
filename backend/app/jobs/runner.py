@@ -82,6 +82,11 @@ class JobContext:
             fields["message"] = message
         self._runner._update(self.job_id, **fields)
 
+    def save_params(self, **fields: Any) -> None:
+        """Persist a checkpoint for a resumed job."""
+        self.params.update(fields)
+        self._runner._repo.update(self.job_id, params_json=json.dumps(self.params))
+
     def check(self) -> None:
         """Stop here if the user pressed Cancel; wait here while paused."""
         control = self._control

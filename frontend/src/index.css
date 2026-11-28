@@ -147,6 +147,18 @@ html.dark body::before {
     radial-gradient(90rem 60rem at 60% 110%, color-mix(in oklab, var(--color-rose-500) 6%, transparent), transparent 65%);
 }
 
+/* Keep a readable page when Windows can't provide a system material. */
+html[data-background="solid"] body::before,
+html[data-background="clear"] body::before,
+html[data-native-backdrop="on"] body::before {
+  display: none;
+}
+html[data-native-backdrop="on"] body {
+  background-color: transparent;
+}
+html[data-background="glass"]:not([data-native-backdrop="on"]) body::before {
+  opacity: 0.6;
+}
 /* A fine glassy edge round the whole window, the same all the way round
    (a touch brighter along the top, where the light comes from) so no corner
    lights up more than another. Clicks pass straight through it. */
@@ -678,4 +690,13 @@ kbd {
 /* Settings -> Appearance -> "Hide tips and descriptions". */
 html[data-tips="off"] .kw-tip {
   display: none !important;
+}
+
+
+html[data-background="solid"] :is(.kw-glass, .kw-glass-pop) {
+  background-color: #fff;
+  backdrop-filter: none;
+}
+html.dark[data-background="solid"] :is(.kw-glass, .kw-glass-pop) {
+  background-color: var(--color-zinc-900);
 }

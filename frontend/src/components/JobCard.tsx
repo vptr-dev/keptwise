@@ -2,7 +2,8 @@
 // runs, and its summary (or what went wrong) when it ends.
 import { useState, type ReactNode } from "react";
 
-import { isActive, jobActions, type Job } from "../lib/jobs";
+import { isActive, jobActions, type Job, type RemainingVideo } from "../lib/jobs";
+import { errorText } from "../lib/api";
 import ProgressBar from "./ProgressBar";
 import { toast } from "./Toasts";
 import { Button, Card, Notice } from "./ui";
@@ -74,9 +75,7 @@ export default function JobCard({
             </p>
             <p className="mt-1">{job.error ?? "Finished videos are kept. Resume carries on with the rest."}</p>
           </div>
-          <Button size="sm" onClick={() => jobActions.resume(job.id)}>
-            Resume
-          </Button>
+          <JobRetry job={job} />
         </div>
       </Notice>
     );
@@ -99,4 +98,39 @@ export default function JobCard({
       {detail && <p className="mt-1 text-xs opacity-80">{detail}</p>}
     </Notice>
   );
+}
+
+
+function JobRetry({ job }: { job: Job }) {
+  const [remaining, setRemaining] = useState<RemainingVideo[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const canPreview = ["enrich", "notes", "sort", "tags"].includes(job.kind);
+  async function reviewOrResume() {
+    setBusy(true);
+    setError("");
+    try {
+      if (canPreview && remaining === null) setRemaining(await jobActions.remaining(job.id));
+      else await jobActions.resume(job.id);
+    } catch (error) {
+      setError(errorText(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return <div className="space-y-2">
+    {remaining && <div className="max-h-48 overflow-auto">
+      <p className="font-medium">{remaining.length.toLocaleString()} videos left to review or retry</p>
+      <ul className="space-y-1">
+        {remaining.map(video => <li key={video.id}>
+          <a className="underline" href={`#/item/${video.id}`}>{video.title}</a>
+          <span className="block text-xs">{video.error ?? (video.unavailable ? "Unavailable on its platform" : "Waiting to be processed")}</span>
+        </li>)}
+      </ul>
+    </div>}
+    {error && <p role="alert">{error}</p>}
+    <Button size="sm" disabled={busy || remaining?.length === 0} onClick={() => void reviewOrResume()}>
+      {canPreview && remaining === null ? "Review remaining videos" : "Resume"}
+    </Button>
+  </div>;
 }

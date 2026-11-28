@@ -8,7 +8,7 @@ export type Target = { type: "all" | "collection" | "tag" | "plan" | "items"; id
 
 export type ChatSource = { number: number; item_id: number; item: LibraryItem };
 // What the AI did in the app for an answer, or is waiting to do (big steps wait for "Do it").
-export type PendingAction = { method: string; path: string; body?: Record<string, unknown>; why?: string };
+export type PendingAction = { method: string; path: string; body?: Record<string, unknown>; why?: string; preview?: string };
 export type ChatActions = { state: "waiting" | "done" | "cancelled" | "clarifying"; pending: PendingAction[]; changed: string[]; undo_id?: number | null };
 export type ChatMessage = {
   id: number;

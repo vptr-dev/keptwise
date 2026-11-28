@@ -7,6 +7,13 @@ import { flushSync } from "react-dom";
 import { toast } from "../components/Toasts";
 import { api, errorText } from "./api";
 
+export type BackgroundStyle = "clear" | "glass" | "mica" | "solid";
+export const BACKGROUND_LABELS: Record<BackgroundStyle, string> = { clear: "Clear", glass: "Glass", mica: "Mica", solid: "Solid" };
+export const UNSAVE_SHORTCUT_LABELS = {
+  off: "Off", "ctrl-alt-u": "Ctrl+Alt+U", "ctrl-alt-n": "Ctrl+Alt+N", "ctrl-shift-f9": "Ctrl+Shift+F9",
+};
+export type UnsaveShortcut = keyof typeof UNSAVE_SHORTCUT_LABELS;
+
 export type ThemeChoice = "system" | "light" | "dark";
 export type Accent = "default" | "violet" | "indigo" | "blue" | "teal" | "emerald" | "rose" | "amber";
 export type TextSize = "small" | "normal" | "large";
@@ -14,6 +21,8 @@ export type StartPage = "library" | "collections" | "tags" | "plans" | "chat" | 
 
 export type Look = {
   theme: ThemeChoice;
+  background?: BackgroundStyle;
+  unsave_shortcut?: UnsaveShortcut;
   accent: Accent;
   text_size: TextSize;
   start_page: StartPage;
@@ -36,6 +45,8 @@ export type Look = {
 
 export const DEFAULT_LOOK: Look = {
   theme: "system",
+  background: "mica",
+  unsave_shortcut: "off",
   accent: "default",
   text_size: "normal",
   start_page: "library",
@@ -81,6 +92,8 @@ export const START_PAGE_LABELS: Record<StartPage, string> = {
   unsave: "Unsave",
 };
 
+let backdropSequence = 0;
+
 function windowsIsDark(): boolean {
   return typeof window.matchMedia === "function" && window.matchMedia("(prefers-color-scheme: dark)").matches;
 }
@@ -94,6 +107,7 @@ export function applyTheme(choice: ThemeChoice): void {
 /** Put the accent colour and text size on the page (see index.css). */
 export function applyLook(look: Look): void {
   applyTheme(look.theme);
+  document.documentElement.dataset.background = look.background ?? "mica";
   document.documentElement.dataset.accent = look.accent;
   document.documentElement.dataset.tips = look.hide_tips ? "off" : "on";
   document.documentElement.dataset.textSize = look.text_size;
@@ -171,6 +185,31 @@ export function useLook() {
     media.addEventListener("change", follow);
     return () => media.removeEventListener("change", follow);
   }, [look]);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    const style = look.background ?? "mica";
+    let request = 0;
+    const apply = () => {
+      const bridge = (window as Window & { pywebview?: { api?: {
+        appearance?: (style: BackgroundStyle, dark: boolean, sequence: number) => Promise<boolean>;
+      } } }).pywebview?.api;
+      const current = ++request;
+      root.removeAttribute("data-native-backdrop");
+      void bridge?.appearance?.(style, root.classList.contains("dark"), ++backdropSequence).then(native => {
+        if (current === request && native) root.dataset.nativeBackdrop = "on";
+      }).catch(() => undefined);
+    };
+    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+    apply();
+    window.addEventListener("pywebviewready", apply);
+    if (look.theme === "system") media?.addEventListener("change", apply);
+    return () => {
+      request++;
+      window.removeEventListener("pywebviewready", apply);
+      media?.removeEventListener("change", apply);
+    };
+  }, [look.background, look.theme]);
 
   /** Change some choices and save them. */
   const changeLook = useCallback((change: Partial<Look>) => {

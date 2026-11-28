@@ -54,3 +54,18 @@ def choices(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         {"id": row["platform"], "label": PLATFORM_NAMES.get(row["platform"], row["platform"]), "count": int(row["n"])}
         for row in rows
     ]
+
+
+def save_filters(tag_names: list[str], creator: str | None, alias: str = "i") -> tuple[list[str], list[Any]]:
+    """Filters used by both Library and Search. Tag names are already normalised."""
+    conditions = []
+    params = []
+    for tag in tag_names:
+        conditions.append(
+            f"EXISTS (SELECT 1 FROM item_tags it JOIN tags t ON t.id = it.tag_id WHERE it.item_id = {alias}.id AND t.name = ?)"
+        )
+        params.append(tag)
+    if creator:
+        conditions.append(f"lower(ltrim({alias}.author, '@')) = ?")
+        params.append(creator.lstrip("@").lower())
+    return conditions, params

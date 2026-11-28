@@ -315,6 +315,9 @@ export default function ItemPage({ itemId }: { itemId: number }) {
                     <a href={`#/collections/${link.id}`} className="hover:text-indigo-700 dark:hover:text-indigo-300">
                       {collections.find((c) => c.id === link.id)?.path ?? link.name}
                     </a>
+                    <span className="text-[10px] text-zinc-500 dark:text-zinc-400">
+                      {{ user: "Added by you", ai: "Filed by AI", rule: "Matched a rule", platform: `From ${item.platform_name}` }[link.source]}
+                    </span>
                     <button
                       type="button"
                       aria-label={`Take out of ${link.name}`}

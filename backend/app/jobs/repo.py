@@ -10,7 +10,7 @@ from app.db.connection import Database
 # Jobs in these states are finished and will not change again.
 FINISHED = ("done", "failed", "cancelled")
 
-_UPDATABLE = {"status", "progress", "total", "message", "error", "result_json", "finished_at", "notice_dismissed"}
+_UPDATABLE = {"params_json", "status", "progress", "total", "message", "error", "result_json", "finished_at", "notice_dismissed"}
 
 
 def _to_dict(row: Any) -> dict[str, Any]:

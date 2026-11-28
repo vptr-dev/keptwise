@@ -408,6 +408,9 @@ def test_platform_collections_link_to_mine(api: TestClient, svc: AppServices) ->
                                                ("youtube", None)]):
             item_id, _ = upsert_item(conn, NewItem(platform=platform, url=f"https://y/{n}",
                                                    platform_collection=where))
+            if where == "Recipes, Watch later":
+                conn.execute("UPDATE items SET platform_collections_json = ? WHERE id = ?",
+                             ('["Recipes", "Watch later"]', item_id))
         conn.execute(
             "INSERT INTO jobs (kind, title, status, result_json) VALUES ('import', 'Import', 'done', ?)",
             ('{"platforms": [{"platform": "tiktok", "collections": ["Gym", "Food ideas"]}]}',),

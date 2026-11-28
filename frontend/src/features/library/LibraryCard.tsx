@@ -103,12 +103,12 @@ export default function LibraryCard({
             className={`absolute left-2 top-2 flex h-8 w-8 items-center justify-center rounded-md border-2 p-0.5 shadow transition ${
               selected
                 ? "border-indigo-600 bg-indigo-600 text-white"
-                : `border-white bg-black/50 text-white hover:bg-black/50 hover:text-white ${
+                : `border-white bg-black/35 hover:bg-black/50 hover:text-white ${
                     selecting || hover ? "opacity-100" : "opacity-0 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100"
                   }`
             }`}
           >
-            {selected ? icons.check : icons.select}
+            {selected && icons.check}
           </button>
         )}
         {!selecting && (onChange || item.gone || item.deleted) && <span className="absolute bottom-2 right-2">

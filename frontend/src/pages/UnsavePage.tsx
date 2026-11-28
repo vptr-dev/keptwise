@@ -10,7 +10,7 @@ import { icons } from "../components/icons";
 import { useDialog } from "../components/Dialog";
 import { toast } from "../components/Toasts";
 import { announceChange, onOrganizeChange } from "../features/organize/organizeApi";
-import { Button, Notice } from "../components/ui";
+import { Button, Notice, inputClass } from "../components/ui";
 import {
   displayTitle,
   formatDate,
@@ -22,6 +22,7 @@ import Thumb from "../features/library/Thumb";
 import UnsaveWalkthrough from "../features/library/UnsaveWalkthrough";
 import { errorText } from "../lib/api";
 import { navigate } from "../lib/router";
+import { UNSAVE_SHORTCUT_LABELS, type UnsaveShortcut } from "../lib/theme";
 import { Tip } from "../lib/tips";
 
 function Row({ item, busy, onToggle }: { item: LibraryItem; busy: boolean; onToggle: (unsaved: boolean) => void }) {
@@ -59,7 +60,10 @@ function Row({ item, busy, onToggle }: { item: LibraryItem; busy: boolean; onTog
   );
 }
 
-export default function UnsavePage() {
+export default function UnsavePage({ shortcut = "off", onShortcutChange }: {
+  shortcut?: UnsaveShortcut;
+  onShortcutChange?: (value: UnsaveShortcut) => void;
+}) {
   const [ask, dialog] = useDialog();
   const [clearing, setClearing] = useState(false);
   const [list, setList] = useState<UnsaveList | null>(null);
@@ -110,7 +114,9 @@ export default function UnsavePage() {
     const queue = (list?.items ?? []).filter((item) => !item.unsaved);
     if (queue.length === 0) return;
     setWalkQueue(queue);
-    libraryApi.openInBrowser(queue[0].id).catch((e) => setError(errorText(e)));
+    libraryApi.openInBrowser(queue[0].id).then(result => {
+      if (!result.opened) setError("Couldn’t open the browser. Use Open again to retry.");
+    }).catch((e) => setError(errorText(e)));
   }
 
   async function exportCsv() {
@@ -200,8 +206,19 @@ export default function UnsavePage() {
             </div>
           </Notice>
         )}
+        {onShortcutChange && (
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="text-sm font-medium" htmlFor="unsave-shortcut">Global shortcut</label>
+            <select id="unsave-shortcut" className={`${inputClass} w-auto`} value={shortcut}
+              onChange={event => onShortcutChange(event.target.value as UnsaveShortcut)}>
+              {(Object.keys(UNSAVE_SHORTCUT_LABELS) as UnsaveShortcut[]).map(value =>
+                <option key={value} value={value}>{UNSAVE_SHORTCUT_LABELS[value]}</option>)}
+            </select>
+            <p className="text-xs text-zinc-500">During the walkthrough, marks the current video done and opens the next one.</p>
+          </div>
+        )}
         {walkQueue && (
-          <UnsaveWalkthrough queue={walkQueue} onUnsaved={replaceItem} onClose={() => setWalkQueue(null)} />
+          <UnsaveWalkthrough shortcut={shortcut} queue={walkQueue} onUnsaved={replaceItem} onClose={() => setWalkQueue(null)} />
         )}
         {error && <Notice tone="error">{error}</Notice>}
         {!list && !error && <Notice>Loading…</Notice>}

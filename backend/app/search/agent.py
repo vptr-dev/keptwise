@@ -180,6 +180,47 @@ def allowed(action: Action, actions: list[dict[str, str]]) -> bool:
     return any(a["method"] == action.method and _route_pattern(a["path"]).match(path) for a in actions)
 
 
+def preview_actions(conn: sqlite3.Connection, pending: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Describe pending changes from their actual parameters and the library."""
+    descriptions = []
+    for action in pending:
+        path = action["path"].split("?", 1)[0]
+        body = action.get("body") or {}
+        saves = body.get("item_ids")
+        if not isinstance(saves, list):
+            match = re.match(r"/api/(?:items|review)/(\d+)(?:/|$)", path)
+            saves = [int(match[1])] if match else []
+        ids = {value for value in saves if type(value) is int}
+        name = str(body.get("action", "")).replace("_", " ")
+        name = {"delete": "Archive", "purge": "Delete permanently", "add to": "Add", "move to": "Move",
+                "remove from": "Remove", "add tag": "Tag", "remove tag": "Remove tag from"}.get(name, name.capitalize())
+        if not name:
+            if action["method"] == "PATCH" and body.get("deleted"):
+                name = "Archive"
+            else:
+                name = {"POST": "Apply", "PATCH": "Update", "PUT": "Update", "DELETE": "Delete"}.get(action["method"], "Change")
+        label = f"{name} {len(ids):,} save{'s' if len(ids) != 1 else ''}" if ids else f"{name} · {path.removeprefix('/api/').replace('-', ' ')}"
+        collection_id = body.get("collection_id", body.get("to_id"))
+        if type(collection_id) is not int:
+            match = re.match(r"/api/collections/(\d+)(?:/|$)", path)
+            collection_id = int(match[1]) if match else None
+        for key, table in ((collection_id, "collections"), (body.get("plan_id"), "plans")):
+            if type(key) is int:
+                row = conn.execute(f"SELECT name FROM {table} WHERE id=?", (key,)).fetchone()
+                if row:
+                    label += f" · {row[0]}"
+        for field in ("tag", "name"):
+            if isinstance(body.get(field), str) and body[field].strip():
+                label += " · " + body[field].strip()[:80]
+        if ids and len(ids) == 1:
+            row = conn.execute("SELECT coalesce(a.title,i.title,i.caption,i.url) FROM items i LEFT JOIN ai_results a ON a.item_id=i.id WHERE i.id=?",
+                               (next(iter(ids)),)).fetchone()
+            if row and row[0]:
+                label += " · " + str(row[0])[:100]
+        descriptions.append({**action, "preview": label})
+    return descriptions
+
+
 def is_big(changes: list[Action]) -> bool:
     """Steps the user should see before they happen."""
     affected = sum(

@@ -6,7 +6,11 @@ import sys
 from typing import Any
 
 
-def install(window: Any) -> Any:
+UNSAVE_HOTKEY_ID = 1
+UNSAVE_CHORDS = {"ctrl-alt-u": (0x0003, ord("U")), "ctrl-alt-n": (0x0003, ord("N")), "ctrl-shift-f9": (0x0006, 0x78)}
+
+
+def install(window: Any, on_unsave_hotkey=None) -> Any:
     if sys.platform != "win32" or window.native is None:
         return None
     import ctypes
@@ -28,6 +32,9 @@ def install(window: Any) -> Any:
 
     @proc_type
     def frame(hwnd, message, wparam, lparam, subclass_id, ref):
+        if message == 0x0312 and wparam == UNSAVE_HOTKEY_ID and on_unsave_hotkey:  # WM_HOTKEY
+            on_unsave_hotkey()
+            return 0
         caption = user.GetWindowLongW(hwnd, -16) & 0x00C00000 == 0x00C00000  # WS_CAPTION
         if message == 0x0083 and wparam and caption:  # WM_NCCALCSIZE
             rect = RECT.from_address(lparam)  # first rectangle in NCCALCSIZE_PARAMS
@@ -87,3 +94,32 @@ def begin_drag(window: Any) -> None:
         user.SendMessageW(form.Handle.ToInt64(), 0x00A1, 2, coords)  # WM_NCLBUTTONDOWN, HTCAPTION
 
     form.BeginInvoke(Action(start))
+
+
+def apply_backdrop(window: Any, style: str, dark: bool) -> bool:
+    """Apply the selected Win32 backdrop on the window's UI thread."""
+    if style not in ("clear", "glass", "mica", "solid"):
+        return False
+    import ctypes
+    from ctypes.wintypes import HWND
+    from System.Drawing import Color
+
+    native = window.native
+    webview = getattr(native, "webview", None)
+    if webview is None or not hasattr(webview, "DefaultBackgroundColor"):
+        return False
+    hwnd = HWND(native.Handle.ToInt64())
+    dwm = ctypes.windll.dwmapi
+    theme = ctypes.c_int(bool(dark))
+    dwm.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(theme), ctypes.sizeof(theme))
+    backdrop = ctypes.c_int({"mica": 2, "glass": 3}.get(style, 1))
+    applied = dwm.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(backdrop), ctypes.sizeof(backdrop)) == 0
+    native_material = applied and style in ("mica", "glass")
+    margins = (ctypes.c_int * 4)(*([-1] * 4 if native_material else [0] * 4))
+    if dwm.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(margins)) != 0:
+        native_material = False
+    native.Opacity = 0.91 if style == "clear" else 1.0
+    base = Color.FromArgb(27, 27, 31) if dark else Color.FromArgb(241, 241, 244)
+    native.BackColor = Color.Black if native_material else base
+    webview.DefaultBackgroundColor = Color.Transparent if native_material else base
+    return native_material

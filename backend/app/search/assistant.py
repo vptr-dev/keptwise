@@ -483,7 +483,7 @@ def _allow_changes(content: str, previous: list[dict[str, Any]]) -> bool:
 
 def _agent_message(conn: sqlite3.Connection, chat_id: int, result: dict[str, Any]) -> None:
     if result["mode"] == "waiting":
-        actions = {"state": "waiting", "pending": result["pending"], "rounds": result["state"]["rounds"],
+        actions = {"state": "waiting", "pending": agent.preview_actions(conn, result["pending"]), "rounds": result["state"]["rounds"],
                    "changed": result["state"]["changed"]}
     elif result["mode"] == "clarify":
         actions = {"state": "clarifying", "changed": result.get("changed", [])}

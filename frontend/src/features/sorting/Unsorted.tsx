@@ -255,7 +255,7 @@ function Row({
         className={`h-8 w-8 shrink-0 rounded-lg border p-1.5 focus-visible:opacity-100 ${
           selected ? "border-indigo-600 bg-indigo-600 text-white" : "border-zinc-300 dark:border-zinc-600"
         } ${selecting ? "" : "opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100"}`}
-        onClick={onPick}>{selected ? icons.check : icons.select}</button>
+        onClick={onPick}>{selected && icons.check}</button>
       {!selecting && <SaveControls id={item.id} title={displayTitle(item)} select={false} />}
       <Thumb item={item} showDuration={false} className="h-16 w-12 shrink-0 rounded-lg" />
       <div className="min-w-0 flex-1 space-y-1.5">

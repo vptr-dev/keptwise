@@ -664,7 +664,7 @@ function ActionsDone({ actions, onConfirm }: { actions: ChatActions; onConfirm?:
         <p className="font-medium text-zinc-900 dark:text-zinc-100">This is a big change, so I'll wait for you:</p>
         <ul className="mt-2 list-disc space-y-1 pl-5 text-zinc-700 dark:text-zinc-300">
           {actions.pending.map((action, index) => (
-            <li key={index}>{action.why || `${action.method} ${action.path}`}</li>
+            <li key={index}>{action.preview || action.why || `${action.method} ${action.path}`}</li>
           ))}
         </ul>
         <div className="mt-3 flex gap-2">

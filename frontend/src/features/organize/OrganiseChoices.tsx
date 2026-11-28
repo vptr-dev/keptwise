@@ -235,6 +235,9 @@ function BringOver({
       </section>}
       <section className="space-y-2 border-t border-zinc-200 pt-4 dark:border-zinc-800" aria-label="Imported collection links">
         <h3 className="text-sm font-semibold">Collections from your exports</h3>
+        {!!data.unconfirmed_memberships && <Notice tone="warning">
+          Re-import the original export to confirm the collection names for {data.unconfirmed_memberships.toLocaleString()} older saves.
+        </Notice>}
         {links.length === 0 && <p className="text-xs text-zinc-500">No platform collections found in your imports yet.</p>}
         {links.some((link) => link.membership_known) && <p className="text-xs text-zinc-600 dark:text-zinc-400">
           Linking an export collection adds its known saves to the destination. Existing placements stay.

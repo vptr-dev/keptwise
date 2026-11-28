@@ -797,9 +797,16 @@ class ImportDestinationBody(BaseModel):
 @router.get("/platform-collections")
 def list_platform_collections(space_id: int | None = None, svc: AppServices = Depends(services)) -> dict[str, Any]:
     collections.seed_once(svc.db, svc.settings)
+    chosen = scope.current(svc.settings)
+    scoped, params = scope.where(chosen, "items")
     with svc.db.connect() as conn:
+        ambiguous = conn.execute(
+            f"""SELECT COUNT(*) FROM items WHERE {scoped}
+                AND platform_collections_json IS NULL AND instr(platform_collection, ', ') > 0""", params,
+        ).fetchone()[0]
         return {
-            "links": platform_links.overview(conn, scope.current(svc.settings)),
+            "links": platform_links.overview(conn, chosen),
+            "unconfirmed_memberships": ambiguous,
             "import_destinations": platform_links.import_destinations(conn),
             "room_left": collections.room_left(conn, space_id),
         }

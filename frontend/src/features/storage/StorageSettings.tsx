@@ -1,6 +1,7 @@
 // Settings -> Storage: what takes up space on this PC, and deleting it.
 // Deleting a model never loses saves or notes: whatever needs it asks to
 // download it again (or does so by itself next time).
+import LibraryBackup from "./LibraryBackup";
 import { useCallback, useEffect, useState } from "react";
 
 import { Badge, Button, Card, Notice, formatBytes, inputClass } from "../../components/ui";
@@ -140,6 +141,7 @@ export default function StorageSettings() {
         </p>
       )}
       {list && <p className="mt-4 break-all text-xs text-zinc-400">Data folder: {list.data_folder}</p>}
+      <LibraryBackup />
       {list && <ClearMyData list={list} onCleared={setList} onError={setError} />}
     </Card>
   );

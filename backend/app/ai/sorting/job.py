@@ -59,6 +59,16 @@ def now_iso() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
 
 
+def needs_ai_work(item: dict[str, Any], task: str, started: str) -> bool:
+    if item.get("deleted_at") or item.get("gone_at"):
+        return False
+    if task == "notes":
+        return item["status"] == "enriched"
+    if task == "tags":
+        return item["status"] in ("enriched", "processed")
+    return item["status"] == "processed" and (item.get("sorted_at") or "") < started
+
+
 def make_notes_handler(db: Database, settings: SettingsRepo, ai: AIService) -> Handler:
     def run_notes(ctx: JobContext) -> dict[str, Any]:
         return Sorter(ctx, db, settings, ai).run(ctx.params.get("item_ids", []), "notes")
@@ -115,6 +125,7 @@ class Sorter:
     def run(self, raw_ids: list[Any], task: str) -> dict[str, Any]:
         ids = [int(item_id) for item_id in raw_ids]
         total = len(ids)
+        tagged = set(self.ctx.params.get("tagged_ids", []))
         if self.ctx.params.get("automatic") and not self.settings.auto_notes:
             return {"message": "Automatic notes are off."}
         if self.provider.info.kind == "cloud" and (
@@ -127,12 +138,14 @@ class Sorter:
             self.ctx.check()
             self.ctx.progress(done, total, f"{verb} video {done + 1:,} of {total:,}…", force=True)
             item = self._item(item_id)
-            if item is None or not self._needs_work(item, task):
+            if item_id in tagged or item is None or not needs_ai_work(item, task, self.started):
                 self.counts["skipped"] += 1
                 continue
             try:
                 if task == "tags":
                     outcome = self._tags(item)
+                    tagged.add(item_id)
+                    self.ctx.save_params(tagged_ids=sorted(tagged))
                 elif task == "notes" or not item.get("has_notes"):
                     outcome = self._notes(item)
                 else:
@@ -151,13 +164,6 @@ class Sorter:
             self.counts[outcome] += 1
         self.ctx.progress(total, total, "Finished", force=True)
         return self._summary(task)
-
-    def _needs_work(self, item: dict[str, Any], task: str) -> bool:
-        if task == "notes":
-            return item["status"] == "enriched"  # Resume skips the ones already done
-        if task == "tags":
-            return item["status"] in ("enriched", "processed")
-        return item["status"] == "processed" and (item.get("sorted_at") or "") < self.started
 
     def _item(self, item_id: int) -> dict[str, Any] | None:
         with self.db.connect() as conn:

@@ -62,8 +62,10 @@ export default function ResultCard({
       }}
     >
       {onSelect && (
-        <input type="checkbox" checked={selected} aria-label={`Select ${displayTitle(item)}`}
-          className={"ml-3 mt-4 h-5 w-5 accent-indigo-600 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100 " + (selecting ? "" : "opacity-0")} onChange={() => onSelect(item.id, false)} />
+        <button type="button" role="checkbox" aria-checked={selected} aria-label={`Select ${displayTitle(item)}`}
+          className={`ml-3 mt-4 h-6 w-6 rounded-md border-2 p-0.5 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100
+            ${selected ? "border-indigo-600 bg-indigo-600 text-white" : "border-zinc-400"} ${selecting ? "" : "opacity-0"}`}
+          onClick={(event) => onSelect(item.id, event.shiftKey)}>{selected && icons.check}</button>
       )}
       <button
         type="button"

@@ -12,7 +12,9 @@ from fastapi.testclient import TestClient
 
 from app.ai.sorting import collections
 from app.api.imports import safe_parts
-from app.importers.job import remove_old_uploads
+from app.importers import pasted
+from app.db.items_repo import NewItem, upsert_item
+from app.importers.job import remove_old_uploads, save_batch
 from app.services import AppServices
 from tests.test_importers import SAMPLES, zip_folder
 from tests.test_jobs import wait_for_status
@@ -39,6 +41,52 @@ def run_import(api: TestClient, svc: AppServices, files: dict[str, bytes]) -> di
 def item_count(svc: AppServices) -> int:
     with svc.db.connect() as conn:
         return int(conn.execute("SELECT COUNT(*) FROM items").fetchone()[0])
+
+
+@pytest.mark.parametrize(("platform", "url", "other"), [
+    ("tiktok", "https://www.tiktok.com/@chef/video/7300000000000000001", "https://www.tiktokv.com/share/video/7300000000000000001/"),
+    ("youtube", "https://youtu.be/dQw4w9WgXcQ?si=sample", "https://www.youtube.com/shorts/dQw4w9WgXcQ"),
+    ("instagram", "https://www.instagram.com/reel/CfakeReel02/?igsh=sample", "https://www.instagram.com/p/CfakeReel02/"),
+    ("facebook", "https://www.facebook.com/creator/videos/123456", "https://m.facebook.com/watch/?v=123456"),
+])
+def test_import_single_link(api, svc, platform, url, other):
+    with svc.db.connect() as conn:
+        inbox = collections.ensure(conn, "Inbox")
+    assert api.put("/api/platform-collections/default", json={"platform": platform, "collection_id": inbox}).status_code == 200
+    route = "/api/imports/link"
+    assert api.post(route, json={"url": url}).json()["status"] == "added"
+    assert api.post(route, json={"url": other}).json()["status"] == "already_had"
+    with svc.db.connect() as conn:
+        row = conn.execute("SELECT id, platform, status FROM items").fetchone()
+        assert (row["platform"], row["status"]) == (platform, "imported")
+        assert conn.execute("SELECT collection_id FROM item_collections WHERE item_id = ?", (row["id"],)).fetchone()[0] == inbox
+    item_path = f"/api/items/{row['id']}"
+    assert api.patch(item_path, json={"deleted": True}).status_code == 200
+    assert api.post(route, json={"url": other}).json()["status"] == "already_had"
+    assert api.delete(item_path).status_code == 200
+    assert api.post(route, json={"url": other}).json()["status"] == "deleted_before"
+    assert item_count(svc) == 0
+    assert api.post(route, json={"url": other, "reimport": True}).json()["status"] == "added"
+    assert item_count(svc) == 1
+
+
+def test_short_links_only_follow_supported_same_platform_redirects(api, monkeypatch):
+    requests = []
+
+    def redirect(url):
+        requests.append(url)
+        if url.endswith("/video/"):
+            return "http://127.0.0.1/private"
+        return "https://www.tiktok.com/@chef/video/7300000000000000001"
+
+    monkeypatch.setattr(pasted, "_redirect", redirect)
+    route = "/api/imports/link"
+    assert api.post(route, json={"url": "https://vm.tiktok.com/token/"}).json()["status"] == "added"
+    assert api.post(route, json={"url": "https://vm.tiktok.com/video/"}).status_code == 400
+    for url in ("https://www.tiktok.com.evil.example/t/token", "https://www.youtube.com/@creator",
+                "https://www.facebook.com/profile.php?id=123", "https://www.tiktok.com:123/t/token"):
+        assert api.post(route, json={"url": url}).status_code == 400
+    assert requests == ["https://vm.tiktok.com/token/", "https://vm.tiktok.com/video/"]
 
 
 def test_create_upload_says_which_files_to_send(api: TestClient) -> None:
@@ -214,3 +262,16 @@ def test_old_leftover_uploads_are_removed(tmp_path: Path) -> None:
     os.utime(old, (two_days_ago, two_days_ago))
     remove_old_uploads(tmp_path)
     assert not old.exists() and new.exists()
+
+
+def test_legacy_comma_label_waits_for_exact_export_membership(api, svc):
+    url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+    with svc.db.connect() as conn:
+        upsert_item(conn, NewItem("youtube", url, platform_collection="Work, home"))
+    before = api.get("/api/platform-collections").json()
+    assert before["links"] == [] and before["unconfirmed_memberships"] == 1
+    save_batch(svc.db, "youtube", [NewItem("youtube", url, platform_collection="Work, home",
+                                         platform_collections=("Work, home",))])
+    after = api.get("/api/platform-collections").json()
+    assert after["unconfirmed_memberships"] == 0
+    assert [(link["name"], link["count"]) for link in after["links"]] == [("Work, home", 1)]

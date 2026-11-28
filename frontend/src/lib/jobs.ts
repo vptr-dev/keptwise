@@ -28,6 +28,8 @@ export type Job = {
   notice_dismissed?: boolean;
 };
 
+export type RemainingVideo = { id: number; title: string; error: string | null; unavailable: boolean };
+
 export const ACTIVE_STATUSES: JobStatus[] = ["queued", "running", "paused"];
 
 export function isActive(job: Job): boolean {
@@ -97,6 +99,7 @@ export function useJobFinished(kinds: string[], callback: (job: Job) => void): v
 
 export const jobActions = {
   pause: (id: number) => api.post<Job>(`/api/jobs/${id}/pause`),
+  remaining: (id: number) => api.get<RemainingVideo[]>(`/api/jobs/${id}/remaining`),
   resume: (id: number) => api.post<Job>(`/api/jobs/${id}/resume`),
   cancel: (id: number) => api.post<Job>(`/api/jobs/${id}/cancel`),
   dismiss: (id: number) => api.post<void>(`/api/jobs/${id}/dismiss-notice`),

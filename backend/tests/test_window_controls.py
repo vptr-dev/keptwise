@@ -36,7 +36,8 @@ def test_fullscreen_restores_a_maximized_window_to_maximized() -> None:
 
 def test_bridge_exposes_only_window_and_workspace_controls() -> None:
     public = {name for name in dir(WindowControls) if not name.startswith("_") and callable(getattr(WindowControls, name))}
-    assert public == {"toggle_fullscreen", "info", "caption", "workspaces", "create_workspace", "open_workspace"}
+    assert public == {"toggle_fullscreen", "info", "caption", "workspaces", "create_workspace", "open_workspace", "unsave_hotkey", "appearance",
+                      "save_library_backup", "preview_library_backup", "restore_library_backup"}
 
 
 def test_the_taskbar_icon_is_the_plain_white_logo_with_no_tile() -> None:

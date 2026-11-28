@@ -55,9 +55,11 @@ export type ChatReply = {
   model?: string;
 };
 
+export type SearchFilters = { collection_id?: string; tag?: string; creator?: string };
+
 export const searchApi = {
-  search: (q: string, mode: SearchMode = "both", signal?: AbortSignal) =>
-    api.get<SearchResponse>(`/api/search?${new URLSearchParams({ q, mode })}`, signal),
+  search: (q: string, mode: SearchMode = "both", signal?: AbortSignal, filters: SearchFilters = {}) =>
+    api.get<SearchResponse>(`/api/search?${new URLSearchParams({ q, mode, ...filters })}`, signal),
   status: () => api.get<IndexStatus>("/api/search/status"),
   startIndex: () => api.post<IndexStatus>("/api/search/index"),
   item: (id: number) => api.get<ItemDetails>(`/api/items/${id}`),

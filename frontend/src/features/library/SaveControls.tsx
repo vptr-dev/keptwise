@@ -60,8 +60,8 @@ export function SaveControls({ id, title, archived, select = true, onChange }: {
     } catch (e) { toast(errorText(e), { tone: "error" }); } finally { setBusy(false); }
   }
   return <span className={"inline-flex items-center gap-1 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100 " + (picked ? "opacity-100" : "opacity-0")}>
-    {select && selection && !inArchive && <button type="button" className={button} aria-pressed={!!picked} aria-label={"Select " + title} title="Select video"
-      onClick={e => { e.preventDefault(); e.stopPropagation(); selection.toggle(id); }}>{picked ? icons.check : icons.select}</button>}
+    {select && selection && !inArchive && <button type="button" className={`${button} border-2 ${picked ? "!border-indigo-600 !bg-indigo-600 !text-white" : "border-zinc-400 !bg-transparent"}`} aria-pressed={!!picked} aria-label={"Select " + title} title="Select video"
+      onClick={e => { e.preventDefault(); e.stopPropagation(); selection.toggle(id); }}>{picked && icons.check}</button>}
     <button type="button" className={button} disabled={busy} title={inArchive ? "Restore from Archive" : "Archive video"}
       aria-label={(inArchive ? "Restore " : "Archive ") + title}
       onClick={e => { e.preventDefault(); e.stopPropagation(); void archive(); }}>{inArchive ? icons.back : icons.archive}</button>

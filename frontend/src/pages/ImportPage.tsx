@@ -1,13 +1,14 @@
 // Import screen: drop an export zip or folder (or pick one), watch it
 // import, and see what was found. Dropping anywhere on the page works.
-import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type DragEvent, type FormEvent } from "react";
 
 import { icons } from "../components/icons";
-import { Button, Card, Notice } from "../components/ui";
+import { Button, Card, Notice, inputClass } from "../components/ui";
 import {
   filesFromDrop,
   filesFromInput,
   getSummary,
+  importVideoLink,
   startImport,
   type DroppedFile,
   type LibrarySummary,
@@ -15,6 +16,7 @@ import {
 } from "../features/import/importApi";
 import { CopyingCard, JobCard, RecentImports } from "../features/import/ImportStatus";
 import PlatformGuides from "../features/import/PlatformGuides";
+import { announceChange } from "../features/organize/organizeApi";
 import { errorText } from "../lib/api";
 import { isActive, jobActions, useJobFinished, useJobs, type Job } from "../lib/jobs";
 
@@ -103,6 +105,8 @@ export default function ImportPage() {
 
       <LibraryCounts summary={summary} />
 
+      <PasteVideoLink onAdded={() => { refresh(); announceChange(); }} />
+
       <div
         className={`rounded-2xl border-2 border-dashed px-6 py-12 text-center transition ${
           dragging
@@ -128,7 +132,7 @@ export default function ImportPage() {
             Choose folder
           </Button>
         </div>
-        <a href="#/collections/links" className="mt-3 inline-block text-sm underline">Import collections or pick a destination</a>
+        <a href="#/collections/links" className="mt-3 inline-block text-sm underline">Choose where new saves go</a>
         <input
           ref={fileInput}
           type="file"
@@ -164,10 +168,62 @@ export default function ImportPage() {
       <PlatformGuides />
 
       <p className="text-sm text-zinc-500 dark:text-zinc-400">
-        The app only reads these files. It never signs in to, or changes anything on, TikTok, YouTube, Instagram or
-        Facebook.
+        Imports read your export files and video links. Your saves on the original platforms stay as they are.
       </p>
     </div>
+  );
+}
+
+function PasteVideoLink({ onAdded }: { onAdded: () => void }) {
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [forgotten, setForgotten] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ text: string; failed: boolean } | null>(null);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await add(url.trim());
+  }
+
+  async function add(link: string, reimport = false) {
+    if (busy || !link) return;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const result = await importVideoLink(link, reimport);
+      setForgotten(result.status === "deleted_before" ? result.url : null);
+      if (result.status === "added") {
+        setUrl("");
+        onAdded();
+      }
+      const message = {
+        added: `${result.platform_name} save added. You can get its transcript in Sort.`,
+        already_had: "This save is already in Keptwise. Check Archive if it’s missing from the Library.",
+        deleted_before: "You previously deleted this save permanently. Keptwise skipped it.",
+      };
+      setFeedback({ text: message[result.status], failed: false });
+    } catch (error) {
+      setFeedback({ text: errorText(error), failed: true });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <h2 className="font-semibold">Add a video link</h2>
+      <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Paste a link from TikTok, YouTube, Instagram or Facebook.</p>
+      <form onSubmit={submit} className="mt-3 flex flex-wrap gap-2">
+        <input className={`${inputClass} min-w-48 flex-1`} type="text" inputMode="url" aria-label="Video link"
+          placeholder="https://…" value={url} maxLength={4096} autoComplete="off" disabled={busy}
+          onChange={(event) => { setUrl(event.target.value); setFeedback(null); setForgotten(null); }} />
+        <Button type="submit" disabled={busy || !url.trim()}>{busy ? "Adding…" : "Add to Library"}</Button>
+      </form>
+      {feedback && <div className="mt-3"><Notice tone={feedback.failed ? "error" : "success"}>
+        {feedback.text}{forgotten && <Button size="sm" className="ml-2" variant="secondary" disabled={busy}
+          onClick={() => void add(forgotten, true)}>Import again as a new save</Button>}
+      </Notice></div>}
+    </Card>
   );
 }
 

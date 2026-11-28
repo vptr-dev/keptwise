@@ -11,6 +11,8 @@ import { PAGE_SECTIONS } from "../../lib/pages";
 import { arrangeNav } from "../organize/tree";
 import {
   ACCENTS,
+  BACKGROUND_LABELS,
+  type BackgroundStyle,
   START_PAGE_LABELS,
   TEXT_SIZE_LABELS,
   THEME_LABELS,
@@ -54,6 +56,12 @@ export default function AppearanceSettings({ look, onChange }: { look: Look; onC
             onChange={(theme) => onChange({ theme })}
             options={(["light", "dark", "system"] as const).map((value) => ({ value, label: THEME_LABELS[value] }))}
           />
+        </Group>
+
+        <Group label="Window background">
+          <Segmented label="Window background" value={look.background ?? "mica"}
+            onChange={(background) => onChange({ background })}
+            options={(Object.keys(BACKGROUND_LABELS) as BackgroundStyle[]).map(value => ({ value, label: BACKGROUND_LABELS[value] }))} />
         </Group>
 
         <Group label="Accent colour" hint="Used for buttons, links and the page you're on. Default has no colour: dark in light mode, light in dark mode.">

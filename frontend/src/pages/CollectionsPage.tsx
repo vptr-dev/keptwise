@@ -87,6 +87,8 @@ export default function CollectionsPage({ selection = null }: { selection?: stri
   const route = useRoute();
   const [overview, setOverview] = useState<CollectionsOverview | null>(null);
   const [items, setItems] = useState<Item[]>([]); // All with notes
+  const [saveSearch, setSaveSearch] = useState<{ collectionId: number; text: string } | null>(null);
+  const searchRequest = useRef(0);
   const [saves, setSaves] = useState<{ total: number; items: LibraryItem[] } | null>(null); // the open collection's own saves
   const [problem, setProblem] = useState<{ text: string; code: string | null } | null>(null);
   const [newName, setNewName] = useState("");
@@ -109,6 +111,9 @@ export default function CollectionsPage({ selection = null }: { selection?: stri
   const viewKey = view.type === "collection" ? `c${view.id}` : view.type;
   const openId = view.type === "collection" ? view.id : null;
 
+  const searchText = saveSearch?.collectionId === openId ? saveSearch.text : "";
+  const searchQuery = searchText.trim();
+
   const refreshLists = useCallback(() => {
     sortingApi.collections().then(setOverview).catch((e) => setProblem({ text: errorText(e), code: null }));
   }, []);
@@ -118,12 +123,17 @@ export default function CollectionsPage({ selection = null }: { selection?: stri
     if (viewKey === "all") {
       sortingApi.library({ type: viewKey } as View).then(setItems).catch((e) => setProblem({ text: errorText(e), code: null }));
     } else if (openId !== null) {
+      const request = ++searchRequest.current;
       libraryApi
-        .items({ ...DEFAULT_QUERY, collection_id: String(openId) }, 0, false)
-        .then((page) => setSaves({ total: page.total, items: page.items }))
-        .catch((e) => setProblem({ text: errorText(e), code: null }));
+        .items({ ...DEFAULT_QUERY, q: searchQuery, collection_id: String(openId) }, 0, false)
+        .then((page) => {
+          if (request === searchRequest.current) setSaves({ total: page.total, items: page.items });
+        })
+        .catch((e) => {
+          if (request === searchRequest.current) setProblem({ text: errorText(e), code: null });
+        });
     }
-  }, [viewKey, openId]);
+  }, [viewKey, openId, searchQuery]);
   useEffect(() => {
     setItems([]);
     setSaves(null);
@@ -132,8 +142,18 @@ export default function CollectionsPage({ selection = null }: { selection?: stri
     setFind("");
     setAdding(false);
     setDetails(false);
-    refreshItems();
-  }, [refreshItems]);
+    setSaveSearch(null);
+  }, [viewKey]);
+  useEffect(() => {
+    setSaves(null);
+    setPickedSaves([]);
+    const timer = searchQuery ? window.setTimeout(refreshItems, 180) : undefined;
+    if (timer === undefined) refreshItems();
+    return () => {
+      window.clearTimeout(timer);
+      searchRequest.current += 1;
+    };
+  }, [refreshItems, searchQuery]);
   useEffect(
     () =>
       onOrganizeChange(() => {
@@ -310,11 +330,12 @@ export default function CollectionsPage({ selection = null }: { selection?: stri
 
   async function loadMore() {
     if (!saves || openId === null) return;
+    const request = ++searchRequest.current;
     try {
-      const page = await libraryApi.items({ ...DEFAULT_QUERY, collection_id: String(openId) }, saves.items.length, false);
-      setSaves({ total: page.total, items: [...saves.items, ...page.items] });
+      const page = await libraryApi.items({ ...DEFAULT_QUERY, q: searchQuery, collection_id: String(openId) }, saves.items.length, false);
+      if (request === searchRequest.current) setSaves({ total: page.total, items: [...saves.items, ...page.items] });
     } catch (e) {
-      setProblem({ text: errorText(e), code: null });
+      if (request === searchRequest.current) setProblem({ text: errorText(e), code: null });
     }
   }
 
@@ -467,7 +488,7 @@ export default function CollectionsPage({ selection = null }: { selection?: stri
             )}
             {opened && !details && opened.description && <p className="-mt-2 text-sm text-zinc-500 dark:text-zinc-400">{opened.description}</p>}
             {opened && details && (
-              <CollectionHeader collection={opened} all={collections} count={saves?.total ?? opened.count} act={act} onDeleted={() => navigate(upHref)} />
+              <CollectionHeader collection={opened} all={collections} count={searchQuery ? opened.count : saves?.total ?? opened.count} act={act} onDeleted={() => navigate(upHref)} />
             )}
             {view.type === "collection" && !opened && overview && <Notice tone="warning">That collection doesn't exist any more.</Notice>}
 
@@ -537,6 +558,19 @@ export default function CollectionsPage({ selection = null }: { selection?: stri
                 </p>
               )}
 
+              {!wanted && opened && (
+                <div className="flex items-center gap-3">
+                  <input type="search" aria-label="Search saves in this collection" placeholder="Search saves in this collection"
+                    className={`${inputClass} max-w-md`} value={searchText}
+                    onChange={(event) => setSaveSearch({ collectionId: opened.id, text: event.target.value })} />
+                  {searchQuery && saves && <span role="status" className="text-sm text-zinc-500">
+                    {saves.total.toLocaleString()} {saves.total === 1 ? "match" : "matches"}
+                  </span>}
+                </div>
+              )}
+              {!wanted && opened && searchQuery && saves?.total === 0 &&
+                <p className="text-sm text-zinc-500">No saves in this collection match your search.</p>}
+
               {/* Then the saves that sit right in this collection. */}
               {!wanted && opened && saves && saves.items.length > 0 && (
                 <>
@@ -571,7 +605,7 @@ export default function CollectionsPage({ selection = null }: { selection?: stri
                   )}
                 </>
               )}
-              {!wanted && opened && saves && saves.items.length === 0 && folders.length === 0 && (
+              {!wanted && opened && saves && saves.items.length === 0 && !searchQuery && folders.length === 0 && (
                 <p className="rounded-2xl border border-dashed border-zinc-300 p-8 text-center text-sm text-zinc-500 dark:border-zinc-700">
                   Nothing in here yet. Drag saves onto this collection, right-click a save and choose “Collections…”, or
                   accept the AI's suggestions in Unsorted.
@@ -895,7 +929,7 @@ function FolderTile({
                 : `border-zinc-300 text-transparent hover:border-indigo-400 dark:border-zinc-600 ${picking ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"}`
             }`}
           >
-            {icons.check}
+            {picked && icons.check}
           </button>
         </div>
         <div className="min-w-0">

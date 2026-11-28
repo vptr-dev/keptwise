@@ -144,6 +144,15 @@ def make_enrich_handler(
     return run_enrich
 
 
+def needs_enrichment(row: dict[str, Any], retry_since: datetime | None) -> bool:
+    if row["deleted_at"]:
+        return False
+    if retry_since:
+        last = row["enriched_at"]
+        return not last or datetime.fromisoformat(last) < retry_since
+    return row["status"] not in DONE_STATUSES and not row["gone_at"]
+
+
 class Enricher:
     def __init__(
         self,
@@ -178,15 +187,8 @@ class Enricher:
         with self.db.connect() as conn:
             for item_id in ids:
                 row = get_item_row(conn, item_id)
-                if row is None or row["deleted_at"]:
-                    continue
-                if self.retry_since:
-                    last = row["enriched_at"]
-                    if last and datetime.fromisoformat(last) >= self.retry_since:
-                        continue
-                elif row["status"] in DONE_STATUSES or row["gone_at"]:
-                    continue
-                todo.append(row)
+                if row is not None and needs_enrichment(row, self.retry_since):
+                    todo.append(row)
         done = total - len(todo)
         ctx.progress(done, total, "Getting ready…")
         if todo:

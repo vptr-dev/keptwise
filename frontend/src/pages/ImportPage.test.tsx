@@ -40,6 +40,28 @@ class FakeXhr {
   }
 }
 
+test("paste a video link and refresh the library count after adding it", async () => {
+  vi.stubGlobal("EventSource", FakeEventSource);
+  let count = 0;
+  const calls = fakeBackend({
+    "GET /api/jobs": [],
+    "GET /api/imports/summary": () => summary(count),
+    "POST /api/imports/link": () => {
+      count++;
+      return {status: "added", platform_name: "TikTok"};
+    },
+  });
+  render(<ImportPage />);
+  const input = screen.getByRole("textbox", {name: "Video link"});
+  const url = "https://vm.tiktok.com/sample/";
+  fireEvent.change(input, {target: {value: url}});
+  fireEvent.click(screen.getByRole("button", {name: "Add to Library"}));
+  expect(await screen.findByText(/TikTok save added/)).toBeInTheDocument();
+  expect(calls.find(c => c.url === "/api/imports/link")?.body).toEqual({url});
+  expect(input).toHaveValue("");
+  expect(await screen.findByTestId("count-tiktok")).toHaveTextContent("1");
+});
+
 const importJob = (overrides: Record<string, unknown>) =>
   makeJob({ id: 4, kind: "import", title: "Import tiktok.zip", status: "queued", ...overrides });
 

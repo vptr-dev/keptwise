@@ -9,6 +9,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.ai.sorting import collections, tags
 from app.api.sorting import cards_by_id
 from app.db.items_repo import get_transcript
 from app.library import scope
@@ -66,6 +67,9 @@ def search(
     q: str = "",
     mode: Literal["both", "words", "similar", "captions"] = "both",
     limit: int = 30,
+    collection_id: int | None = None,
+    creator: str | None = None,
+    tag: str | None = None,
     svc: AppServices = Depends(services),
 ) -> dict[str, Any]:
     query = q.strip()[:200]
@@ -73,9 +77,17 @@ def search(
     chosen = scope.current(svc.settings)
     hits = []
     if query:
-        scoped, params = scope.where(chosen, "items")
+        scoped, params = scope.where(chosen, "i")
+        name = tags.clean_tag(tag or "")
+        filters, filter_params = scope.save_filters([name] if name else [], creator)
         with svc.db.connect() as conn:
-            keep = {int(row["id"]) for row in conn.execute(f"SELECT id FROM items WHERE {scoped}", params)}
+            if collection_id is not None:
+                inside = collections.descendants(conn, collection_id)
+                marks = ",".join("?" for _ in inside)
+                filters.append(f"EXISTS (SELECT 1 FROM item_collections ic WHERE ic.item_id=i.id AND ic.collection_id IN ({marks}))")
+                filter_params.extend(inside)
+            where = " AND ".join([scoped, *filters])
+            keep = {int(row["id"]) for row in conn.execute(f"SELECT i.id FROM items i WHERE {where}", [*params, *filter_params])}
         hits = svc.search.hybrid(query, limit=limit * 3, allowed_ids=keep)
     if mode == "captions":  # only words found in the video's caption
         hits = [h for h in hits if h.keyword and any(f.part == "about" for f in h.keyword.fields)]

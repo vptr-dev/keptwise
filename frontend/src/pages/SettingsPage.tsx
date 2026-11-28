@@ -132,7 +132,7 @@ export default function SettingsPage({
         id: "appearance",
         title: "Appearance",
         blurb: "Theme, colours, text size, sidebar and cards.",
-        settings: ["Theme", "Dark mode", "Light mode", "Accent colour", "Text size", "Open Keptwise on", "Your name", "Slim sidebar", "Library pictures", "Quick buttons on saves", "Sidebar pages and order", "Tips"],
+        settings: ["Theme", "Dark mode", "Light mode", "Window background", "Clear", "Glass", "Mica", "Solid", "Accent colour", "Text size", "Open Keptwise on", "Your name", "Slim sidebar", "Library pictures", "Quick buttons on saves", "Sidebar pages and order", "Tips"],
         extra: ["colour", "color", "font", "start page", "display name", "personalise", "personalize", "hide page", "reorder"],
         render: () => <AppearanceSettings look={look} onChange={onLookChange} />,
       });
@@ -161,7 +161,7 @@ export default function SettingsPage({
         id: "storage",
         title: "Storage",
         blurb: "Where your data lives and how much room it takes.",
-        settings: ["Data folder", "Space used", "Free up space", "Clear my saves", "Clear backups"],
+        settings: ["Data folder", "Space used", "Free up space", "Clear my saves", "Clear backups", "Library backup", "Restore to a new workspace"],
         extra: ["disk", "folder", "delete", "backup", "space", "files"],
         render: () => <StorageSettings />,
       },

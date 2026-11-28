@@ -6,6 +6,10 @@
 import { api, ApiError } from "../../lib/api";
 import type { Job } from "../../lib/jobs";
 
+export function importVideoLink(url: string, reimport = false) {
+  return api.post<{ status: "added" | "already_had" | "deleted_before"; platform_name: string; url: string }>("/api/imports/link", reimport ? {url, reimport} : {url});
+}
+
 export type UploadInfo = {
   upload_id: string;
   wanted_names: string[];

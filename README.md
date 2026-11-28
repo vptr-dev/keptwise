@@ -9,15 +9,17 @@ It runs on your PC with no Keptwise account or tracking. A free local AI can wor
 ## Features
 
 - **Workspaces** keep separate libraries, settings, chats and provider keys on the same PC. Your existing library is in Personal. Click the workspace name in the sidebar to create or switch workspaces.
+- **Library backup** saves your library and pictures to a local ZIP. Restore a verified copy with a fresh Undo history in a new workspace through **Settings → Storage**.
 - **Archive** holds saves you put away. Hover over a save to select or archive it. Restore archived saves individually or in bulk, or empty the Archive for the selected platform.
-- **Import** the data export from each platform (just drag the zip in). Importing again only adds new saves.
-- **Transcripts** made on your PC with Whisper. In **Sort**, retry videos with no detected speech, retry failed downloads, or recheck videos marked unavailable. Open a save to retry it on its own.
+- **Import** the data export from each platform (just drag the zip in). You can also paste a link to add a single video from any supported platform. Importing again only adds new saves.
+- **Transcripts** made on your PC with Whisper. In **Sort**, retry videos with no detected speech, retry failed downloads, or recheck videos marked unavailable. Open a save to retry it on its own, or use **Video problems** to see recorded errors and unavailable videos.
 - **Notes**: a summary, key details and next steps for every save.
-- **Collections** organized by hand or with AI suggestions that you can review and approve.
+- **Collections** organized by hand or with AI suggestions that you can review and approve. Search the saves in the collection you have open.
 - **Plans**: tick off a recipe's or a trip's steps as you go.
-- **Search** captions, transcripts and notes by word or idea. Tag, file, plan, or archive saves directly from the results.
+- **Search** captions, transcripts and notes by word or idea. Filter by collection, tag, or creator. Tag, file, plan, or archive saves directly from the results.
 - **Assistant** chats about your library, asks for details when a request is unclear, and can find or organise saves. Undo the Assistant’s latest library edit from its reply.
-- **Unsave**: a checklist for videos you want to unsave on their platforms. Clear the checklist whenever you want a fresh list.
+- **Unsave**: a checklist for videos you want to unsave on their platforms. Clear the checklist whenever you want a fresh list. During **Unsave one by one**, an optional global shortcut marks the current item done and opens the next one while you’re in the browser.
+- **Appearance** offers Clear, Glass, Mica and Solid window backgrounds, saved per workspace.
 
 ## Install
 

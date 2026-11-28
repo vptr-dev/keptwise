@@ -108,6 +108,25 @@ test("a space shows its top collections; opening one shows what's inside first, 
   expect(window.location.hash).toBe("#/collections");
 });
 
+test("search within the open collection keeps the server query scoped to its own saves", async () => {
+  const calls = fakeBackend(base({
+    "GET /api/library/items": (_body: unknown, url: string) => {
+      const query = new URL(url, "http://localhost").searchParams;
+      const matching = query.get("q") === "atoms";
+      const item = libraryItem({ id: matching ? 8 : 7, title: matching ? "Atoms explained" : "Periodic table song" });
+      return { total: 1, offset: 0, items: [item] };
+    },
+  }));
+  render(<CollectionsPage selection="1" />);
+  expect(await screen.findByText("Periodic table song")).toBeInTheDocument();
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search saves in this collection" }), { target: { value: "atoms" } });
+  expect(await screen.findByText("Atoms explained")).toBeInTheDocument();
+  expect(screen.queryByText("Periodic table song")).toBeNull();
+  const request = calls.find(call => call.url.includes("q=atoms"));
+  expect(request?.url).toContain("collection_id=1");
+  expect(request?.url).toContain("include_sub=false");
+});
+
 test("a new collection is made where you are: in the open collection, or in the chosen space", async () => {
   window.location.hash = "#/collections?space=2";
   const calls = fakeBackend(base({ "POST /api/collections": { ...overview(), created_id: 9 } }));

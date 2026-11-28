@@ -30,7 +30,10 @@ Mode = Literal["auto", "manual"]
 def member_names(row: sqlite3.Row) -> list[str]:
     """Older imports supply only a display string; new ones retain exact names."""
     raw = row["platform_collections_json"]
-    names = decode_json_list(raw) if raw is not None else (row["platform_collection"] or "").split(", ")
+    legacy = row["platform_collection"] or ""
+    # A comma can be part of a collection's name. Wait for exact export data
+    # before using a combined legacy label as evidence for automatic filing.
+    names = decode_json_list(raw) if raw is not None else ([] if ", " in legacy else [legacy])
     return [clean_name(name) for name in names if isinstance(name, str) and clean_name(name)]
 
 
